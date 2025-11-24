@@ -1,0 +1,39 @@
+{
+    "entity_name": "Leading financial services organization",
+    "client_pursuit_owner_name": "<UNKNOWN>",
+    "client_pursuit_owner_email": "<UNKNOWN>",
+    "internal_pursuit_owner_name": null,
+    "internal_pursuit_owner_email": null,
+    "industry": "Financial Services",
+    "service_types": [
+        "Engineering",
+        "Data",
+        "Design"
+    ],
+    "technologies": [
+        "Azure",
+        "AWS",
+        "Databricks",
+        "Power BI"
+    ],
+    "geography": null,
+    "submission_due_date": "2025-02-28",
+    "estimated_fees_usd": null,
+    "expected_format": "docx",
+    "proposal_outline_framework": null,
+    "rfp_objective": "Establish centralized AI governance framework with automated policy enforcement, enable secure and compliant use of generative AI, provide self-service AI capabilities to business users, implement model lifecycle management and monitoring, ensure auditability, explainability, and transparency of AI systems, accelerate time-to-value for AI use cases",
+    "requirements": [
+        "Platform implementation including infrastructure provisioning and configuration",
+        "Integration with existing enterprise systems (identity, data, security)",
+        "AI governance framework design and implementation",
+        "Model development and deployment pipeline setup",
+        "Training and enablement for technical and business users",
+        "Documentation including architecture diagrams, runbooks, and user guides",
+        "Post-implementation support and optimization (6 months)"
+    ],
+    "sources": [
+        "Page 3, Section 3.2",
+        "Page 4, Section 4",
+        "Page 5, Section 5"
+    ]
+}

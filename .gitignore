@@ -1,0 +1,37 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.next/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+output.txt
+output_container.txt
+output_latest.txt
+output_refactor.txt
+
+# Data
+Data/
+*.docx

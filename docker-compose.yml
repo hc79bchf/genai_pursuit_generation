@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: pursuit_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - CHROMADB_PORT=8000
+    depends_on:
+      - db
+      - redis
+      - chroma
+    volumes:
+      - ./backend:/app
+      - ./Data:/data
+      - ./scripts:/app/scripts
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    container_name: pursuit_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
+
+  worker:
+    build: ./backend
+    container_name: pursuit_worker
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - chroma
+    volumes:
+      - ./backend:/app
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+
+  mcp-chroma:
+    build: ./backend
+    container_name: pursuit_mcp_chroma
+    env_file:
+      - .env
+    depends_on:
+      - chroma
+    volumes:
+      - ./backend:/app
+    command: python -m app.mcp.main chroma --host 0.0.0.0 --port 8000
+    ports:
+      - "8002:8000"
+
+  mcp-postgres:
+    build: ./backend
+    container_name: pursuit_mcp_postgres
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+    command: python -m app.mcp.main postgres --host 0.0.0.0 --port 8000
+    ports:
+      - "8003:8000"
+
+  db:
+    image: postgres:15
+    container_name: pursuit_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pursuit_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pursuit_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-pursuit_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: pursuit_chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+
+  redis:
+    image: redis:7
+    container_name: pursuit_redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+  chroma_data:
