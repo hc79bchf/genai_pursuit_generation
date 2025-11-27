@@ -1,4 +1,4 @@
-# Dockerfile
+# Dockerfile for Railway deployment
 FROM python:3.11-slim as builder
 
 WORKDIR /app
@@ -38,12 +38,16 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
 # Create a non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Railway uses PORT env variable
+ENV PORT=8000
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Use entrypoint script
+CMD ["./entrypoint.sh"]
