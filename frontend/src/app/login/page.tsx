@@ -41,7 +41,7 @@ export default function LoginPage() {
             })
 
             localStorage.setItem("token", data.access_token)
-            router.push("/dashboard")
+            router.push("/dashboard/welcome")
         } catch (err: any) {
             setError(err.message || "Failed to login")
         } finally {

@@ -18,10 +18,11 @@ cors_origins = list(settings.BACKEND_CORS_ORIGINS)
 if settings.FRONTEND_URL:
     cors_origins.append(settings.FRONTEND_URL)
 
-# Add Railway wildcard for development
+# Add common local development origins
 cors_origins.extend([
-    "https://*.railway.app",
-    "https://*.up.railway.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://beautiful-achievement-production.up.railway.app",
 ])
 
 app.add_middleware(
