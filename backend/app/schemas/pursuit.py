@@ -24,6 +24,8 @@ class PursuitBase(BaseModel):
     outline_json: Optional[Dict[str, Any]] = None
     conversation_history: Optional[List[Dict[str, Any]]] = None
     proposal_outline_framework: Optional[str] = None
+    gap_analysis_result: Optional[Dict[str, Any]] = None
+    research_result: Optional[Dict[str, Any]] = None
     current_stage: Optional[str] = None
     progress_percentage: Optional[int] = 0
 
@@ -51,26 +53,6 @@ class Pursuit(PursuitBase):
     submitted_at: Optional[datetime] = None
     is_deleted: bool = False
     files: List[PursuitFile] = []
-
-    class Config:
-        from_attributes = True
-
-class PursuitSummary(PursuitBase):
-    id: UUID
-    internal_pursuit_owner_id: UUID
-    created_by_id: UUID
-    created_at: datetime
-    updated_at: datetime
-    status: str
-    entity_name: str
-    internal_pursuit_owner_name: str
-    progress_percentage: Optional[int] = 0
-    
-    # Exclude heavy fields
-    requirements_text: Optional[str] = None
-    outline_json: Optional[Dict[str, Any]] = None
-    conversation_history: Optional[List[Dict[str, Any]]] = None
-    proposal_outline_framework: Optional[str] = None
 
     class Config:
         from_attributes = True

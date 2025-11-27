@@ -38,6 +38,8 @@ services:
     container_name: pursuit_worker
     env_file:
       - .env
+    environment:
+      - CHROMADB_PORT=8000
     depends_on:
       - db
       - redis

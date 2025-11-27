@@ -8,9 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ArrowLeft, Loader2, Upload } from "lucide-react"
 import Link from "next/link"
 import { fetchApi } from "@/lib/api"
+import { usePursuitStore } from "@/store/pursuitStore"
 
 export default function NewPursuitPage() {
     const router = useRouter()
+    const { refreshPursuitsCount } = usePursuitStore()
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState("")
     const [formData, setFormData] = useState({
@@ -30,6 +32,8 @@ export default function NewPursuitPage() {
             })
 
             if (response.id) {
+                // Refresh the pursuit count in the sidebar
+                await refreshPursuitsCount()
                 router.push(`/dashboard/pursuits/${response.id}`)
             }
         } catch (error: any) {

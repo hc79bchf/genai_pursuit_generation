@@ -1,13 +1,19 @@
 "use client"
 
 import { useState } from "react"
-import { motion } from "framer-motion"
+import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Loader2, Lock, Mail } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { fetchApi } from "@/lib/api"
+
+// Import motion with SSR disabled
+const MotionDiv = dynamic(
+    () => import("framer-motion").then((mod) => mod.motion.div),
+    { ssr: false }
+)
 
 export default function LoginPage() {
     const [isLoading, setIsLoading] = useState(false)
@@ -45,7 +51,7 @@ export default function LoginPage() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black">
-            <motion.div
+            <MotionDiv
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
@@ -113,7 +119,7 @@ export default function LoginPage() {
                         </div>
                     </CardFooter>
                 </Card>
-            </motion.div>
+            </MotionDiv>
         </div>
     )
 }

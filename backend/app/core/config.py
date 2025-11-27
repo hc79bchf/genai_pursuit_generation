@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # AI
     ANTHROPIC_API_KEY: str
     OPENAI_API_KEY: str
+    BRAVE_API_KEY: str = "BSA1wAma0KwpZeUqavOMI5u42ENJrA4"
     LLM_MODEL_FAST: str = "claude-3-haiku-20240307"
     LLM_MODEL_SMART: str = "claude-3-haiku-20240307"
     

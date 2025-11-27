@@ -41,6 +41,8 @@ class Pursuit(Base):
     outline_json = Column(JSONB)
     conversation_history = Column(JSONB)
     proposal_outline_framework = Column(Text)
+    gap_analysis_result = Column(JSONB)
+    research_result = Column(JSONB)
 
     # Progress
     current_stage = Column(String(50))

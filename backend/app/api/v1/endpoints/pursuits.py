@@ -29,7 +29,7 @@ router = APIRouter()
 
 from app.api.deps import get_current_user
 
-@router.get("/", response_model=List[pursuit_schemas.PursuitSummary])
+@router.get("/", response_model=List[pursuit_schemas.Pursuit])
 async def read_pursuits(
     db: AsyncSession = Depends(get_db),
     skip: int = 0,
@@ -291,4 +291,104 @@ async def extract_metadata(
     await db.commit()
     await db.refresh(pursuit)
     
+    return pursuit
+
+@router.post("/{pursuit_id}/gap-analysis", response_model=pursuit_schemas.Pursuit)
+async def trigger_gap_analysis(
+    *,
+    db: AsyncSession = Depends(get_db),
+    pursuit_id: UUID,
+    template_details: dict,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Trigger gap analysis for a pursuit.
+    """
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+    if not pursuit:
+        raise HTTPException(status_code=404, detail="Pursuit not found")
+
+    # Trigger Celery task
+    from app.tasks import perform_gap_analysis_task
+    task = perform_gap_analysis_task.delay(str(pursuit_id), template_details, str(current_user.id))
+
+    # We can return the pursuit immediately, the frontend will poll or we can return task id
+    # For simplicity, we return the pursuit. The frontend can poll the pursuit endpoint to see if gap_analysis_result is populated.
+
+    return pursuit
+
+@router.patch("/{pursuit_id}/gap-analysis", response_model=pursuit_schemas.Pursuit)
+async def update_gap_analysis(
+    *,
+    db: AsyncSession = Depends(get_db),
+    pursuit_id: UUID,
+    gap_analysis_update: dict,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Update gap analysis results for a pursuit.
+    Allows users to edit gaps and search queries.
+    """
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+    if not pursuit:
+        raise HTTPException(status_code=404, detail="Pursuit not found")
+
+    # Validate that gap_analysis_update has the expected structure
+    if not isinstance(gap_analysis_update, dict):
+        raise HTTPException(status_code=400, detail="Invalid gap analysis format")
+
+    # Update the gap_analysis_result field
+    pursuit.gap_analysis_result = gap_analysis_update
+    pursuit.updated_at = datetime.utcnow()
+
+    db.add(pursuit)
+    await db.commit()
+
+    # Re-query to ensure files are loaded
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+
+    return pursuit
+
+@router.post("/{pursuit_id}/research", response_model=pursuit_schemas.Pursuit)
+async def trigger_research(
+    *,
+    db: AsyncSession = Depends(get_db),
+    pursuit_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Trigger deep research using search queries from gap analysis.
+    """
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+    if not pursuit:
+        raise HTTPException(status_code=404, detail="Pursuit not found")
+
+    if not pursuit.gap_analysis_result:
+        raise HTTPException(status_code=400, detail="Gap analysis must be completed first")
+
+    # Trigger Celery task
+    from app.tasks import perform_research_task
+    task = perform_research_task.delay(str(pursuit_id), str(current_user.id))
+
+    # Return the pursuit immediately, frontend will poll for results
     return pursuit
