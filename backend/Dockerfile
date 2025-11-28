@@ -41,6 +41,9 @@ COPY . .
 # Make entrypoint executable
 RUN chmod +x entrypoint.sh
 
+# Create directories for data persistence
+RUN mkdir -p /app/chroma_data /app/uploads
+
 # Create a non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser

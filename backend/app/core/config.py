@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     CHROMADB_HOST: str = "localhost"
     CHROMADB_PORT: int = 8000
     CHROMA_PERSIST_DIR: str = "/app/chroma_data"
+    USE_CHROMA_SERVER: bool = False  # Set to True if running external ChromaDB server
 
     # Redis - Railway provides REDIS_URL
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -67,14 +68,24 @@ class Settings(BaseSettings):
 
     @functools.cached_property
     def MEM0_CONFIG(self):
+        # Use persistent path or in-memory based on environment
+        chroma_config = {
+            "collection_name": "debug_memory",
+            "path": self.CHROMA_PERSIST_DIR,  # Use local persistent storage
+        }
+
+        # Only use server mode if explicitly enabled
+        if self.USE_CHROMA_SERVER:
+            chroma_config = {
+                "collection_name": "debug_memory",
+                "host": self.CHROMADB_HOST,
+                "port": self.CHROMADB_PORT,
+            }
+
         return {
             "vector_store": {
                 "provider": "chroma",
-                "config": {
-                    "collection_name": "debug_memory",
-                    "host": self.CHROMADB_HOST,
-                    "port": self.CHROMADB_PORT,
-                }
+                "config": chroma_config
             },
             "llm": {
                 "provider": "openai",
