@@ -95,7 +95,10 @@ export function Sidebar() {
                         // But avoid false positives when a longer, more specific route exists
                         let isActive = false
 
-                        if (pathname === item.href) {
+                        // Special case: Dashboard should only be active on exact /dashboard path
+                        if (item.href === "/dashboard") {
+                            isActive = pathname === "/dashboard"
+                        } else if (pathname === item.href) {
                             // Exact match - always active
                             isActive = true
                         } else if (pathname?.startsWith(item.href + "/")) {
