@@ -87,9 +87,14 @@ def perform_gap_analysis_task(self, pursuit_id: str, template_details: dict, use
         db.close()
 
 @celery_app.task(bind=True)
-def perform_research_task(self, pursuit_id: str, user_id: str):
+def perform_research_task(self, pursuit_id: str, user_id: str, max_results_per_query: int = 5):
     """
     Background task to perform deep research using gap analysis search queries.
+
+    Args:
+        pursuit_id: The pursuit ID
+        user_id: The user ID
+        max_results_per_query: Number of sources to return per query (1-5, default 5)
     """
     db: Session = SessionLocal()
     try:
@@ -126,7 +131,7 @@ def perform_research_task(self, pursuit_id: str, user_id: str):
             asyncio.set_event_loop(loop)
 
         result = loop.run_until_complete(
-            agent.research(search_queries, pursuit_context, user_id)
+            agent.research(search_queries, pursuit_context, user_id, max_results_per_query)
         )
 
         # Update pursuit

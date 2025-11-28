@@ -10,6 +10,7 @@ import { templates } from "@/lib/data"
 import { Loader2, AlertCircle, Check, ArrowRight, Sparkles, FileText, Edit2, Trash2, Plus, X, Save } from "lucide-react"
 import { MetadataDisplay } from "@/components/metadata-display"
 import Link from "next/link"
+import { PageGuide } from "@/components/PageGuide"
 
 interface Pursuit {
     id: string
@@ -196,7 +197,20 @@ export default function GapAssessmentPage() {
         <div className="space-y-8 max-w-7xl mx-auto pb-10">
             {/* Header */}
             <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white">Gap Assessment</h1>
+                <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold tracking-tight text-white">Gap Assessment</h1>
+                    <PageGuide
+                        title="Gap Assessment"
+                        description="The Gap Assessment page helps you identify missing information in your pursuit by comparing extracted RFP data against a selected proposal template."
+                        guidelines={[
+                            "Review the extracted RFP metadata in the left column.",
+                            "Select a target proposal outline template from the library.",
+                            "Run the AI Gap Analysis Agent to identify missing requirements.",
+                            "Review identified gaps and recommended search queries.",
+                            "Edit the analysis results if needed before proceeding to Deep Search."
+                        ]}
+                    />
+                </div>
                 <p className="text-muted-foreground mt-1">Analyze the gap between your extracted RFP data and the selected proposal outline.</p>
             </div>
 

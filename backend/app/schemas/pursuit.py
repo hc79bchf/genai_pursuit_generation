@@ -66,3 +66,15 @@ class PursuitMetadata(PursuitBase):
         if isinstance(v, str) and v.upper() == "UNKNOWN":
             return None
         return v
+
+class Slide(BaseModel):
+    title: str = Field(description="Title of the slide")
+    content: List[str] = Field(description="Bullet points or content for the slide")
+    speaker_notes: Optional[str] = Field(None, description="Speaker notes for the slide")
+    layout: Optional[str] = Field("Title and Content", description="Suggested layout (e.g., Title Slide, Title and Content, Two Content)")
+
+class PPTOutline(BaseModel):
+    title: str = Field(description="Title of the presentation")
+    slides: List[Slide] = Field(description="List of slides in the presentation")
+    theme: Optional[str] = Field("Professional", description="Suggested theme or style")
+

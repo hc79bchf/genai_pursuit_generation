@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 import { templates, categories } from "@/lib/data"
+import { PageGuide } from "@/components/PageGuide"
 
 function TemplateCard({ template, index }: { template: any, index: number }) {
     const [isFlipped, setIsFlipped] = useState(false)
@@ -127,7 +128,19 @@ export default function OutlineLibraryPage() {
         <div className="space-y-8 h-[calc(100vh-100px)] flex flex-col">
             {/* Header */}
             <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white">Outline Library</h1>
+                <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold tracking-tight text-white">Outline Library</h1>
+                    <PageGuide
+                        title="Outline Library"
+                        description="Browse and select from a collection of pre-built proposal outlines to jumpstart your pursuit response."
+                        guidelines={[
+                            "Use the search bar to find specific templates.",
+                            "Filter templates by category using the tabs.",
+                            "Click on a card to flip it and view the detailed outline structure.",
+                            "Select a template to use it for your new pursuit."
+                        ]}
+                    />
+                </div>
                 <p className="text-muted-foreground mt-1">Browse and select prebuilt RFP outlines to jumpstart your proposal.</p>
             </div>
 

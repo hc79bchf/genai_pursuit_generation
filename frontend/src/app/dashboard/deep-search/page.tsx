@@ -5,9 +5,11 @@ import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { fetchApi } from "@/lib/api"
-import { Loader2, AlertCircle, Search, ExternalLink, CheckCircle, Play, Clock, Zap, RotateCcw, Trash2 } from "lucide-react"
+import { Loader2, AlertCircle, Search, ExternalLink, CheckCircle, Play, Clock, Zap, RotateCcw, Trash2, CheckSquare, Square } from "lucide-react"
 import Link from "next/link"
+
 import { useResearchStore } from "@/store/researchStore"
+import { PageGuide } from "@/components/PageGuide"
 
 interface ResearchResult {
     query: string
@@ -41,6 +43,18 @@ interface Pursuit {
 export default function DeepSearchPage() {
     const [pursuit, setPursuit] = useState<Pursuit | null>(null)
     const [isLoading, setIsLoading] = useState(true)
+    const [maxSourcesPerQuery, setMaxSourcesPerQuery] = useState(3)
+    const [selectedResults, setSelectedResults] = useState<Set<string>>(new Set())
+
+    const toggleSelection = (url: string) => {
+        const newSelected = new Set(selectedResults)
+        if (newSelected.has(url)) {
+            newSelected.delete(url)
+        } else {
+            newSelected.add(url)
+        }
+        setSelectedResults(newSelected)
+    }
 
     // Get research state from Zustand store
     const {
@@ -132,8 +146,8 @@ export default function DeepSearchPage() {
             completeResearch()
         }, 120000)
 
-        // Store intervals in global scope so they can be cleared if component unmounts
-        ;(window as any).__researchPollingIntervals = { progressInterval, pollInterval }
+            // Store intervals in global scope so they can be cleared if component unmounts
+            ; (window as any).__researchPollingIntervals = { progressInterval, pollInterval }
     }
 
     const handleRunResearch = async () => {
@@ -145,7 +159,7 @@ export default function DeepSearchPage() {
         startResearch(pursuit.id, totalQueries)
 
         try {
-            await fetchApi(`/pursuits/${pursuit.id}/research`, {
+            await fetchApi(`/pursuits/${pursuit.id}/research?max_results_per_query=5`, {
                 method: "POST"
             })
 
@@ -231,12 +245,43 @@ export default function DeepSearchPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-white">Deep Search</h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-2xl font-bold tracking-tight text-white">Deep Search</h1>
+                        <PageGuide
+                            title="Deep Search"
+                            description="Deep Search uses AI agents to perform autonomous web research, finding evidence and information to address identified gaps."
+                            guidelines={[
+                                "Review the search queries generated from the Gap Assessment.",
+                                "Adjust the 'Sources per query' setting to control research depth.",
+                                "Click 'Start Deep Search' to initiate the autonomous research agent.",
+                                "Monitor progress in real-time as the agent searches and analyzes sources.",
+                                "Select specific search results to include in your final proposal."
+                            ]}
+                        />
+                    </div>
                     <p className="text-muted-foreground mt-1">
                         AI-powered web research to fill gaps in your proposal
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {/* Sources per query selector */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">
+                            Sources per query:
+                        </span>
+                        <select
+                            value={maxSourcesPerQuery}
+                            onChange={(e) => setMaxSourcesPerQuery(Number(e.target.value))}
+                            disabled={isResearching}
+                            className="h-9 rounded-md border border-white/10 bg-white/5 px-3 py-1 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {[1, 2, 3, 4, 5].map((num) => (
+                                <option key={num} value={num} className="bg-slate-900 text-white">
+                                    {num}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     {pursuit.research_result && !isResearching && (
                         <Button
                             size="lg"
@@ -345,13 +390,12 @@ export default function DeepSearchPage() {
                                                     opacity: isCompleted ? 1 : isInProgress ? 0.8 : 0.4,
                                                     scale: isInProgress ? 1.05 : 1
                                                 }}
-                                                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
-                                                    isCompleted
-                                                        ? "bg-green-500/20 border-green-500/40 text-green-200"
-                                                        : isInProgress
+                                                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${isCompleted
+                                                    ? "bg-green-500/20 border-green-500/40 text-green-200"
+                                                    : isInProgress
                                                         ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
                                                         : "bg-white/5 border-white/10 text-white/40"
-                                                }`}
+                                                    }`}
                                             >
                                                 <div className="flex items-center gap-2">
                                                     {isCompleted && <CheckCircle className="h-3 w-3" />}
@@ -387,6 +431,19 @@ export default function DeepSearchPage() {
                     </div>
                     {searchQueries.length === 0 && (
                         <p className="text-muted-foreground text-sm">No search queries available</p>
+                    )}
+
+                    {/* Dynamic sources summary */}
+                    {searchQueries.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-sm text-muted-foreground">
+                                <span className="text-white font-medium">{searchQueries.length}</span> queries × <span className="text-white font-medium">{maxSourcesPerQuery}</span> sources per query
+                            </div>
+                            <div className="text-sm">
+                                <span className="text-muted-foreground">Total sources: </span>
+                                <span className="text-primary font-bold">{searchQueries.length * maxSourcesPerQuery}</span>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
             </Card>
@@ -428,43 +485,58 @@ export default function DeepSearchPage() {
                                 {research.results.length > 0 && (
                                     <div className="space-y-3 mt-4">
                                         <h4 className="text-sm font-medium text-white/60 uppercase tracking-wider">
-                                            Sources ({research.results.length})
+                                            Sources ({Math.min(research.results.length, maxSourcesPerQuery)})
                                         </h4>
-                                        {research.results.map((result: SearchResult, resultIdx: number) => (
-                                            <div
-                                                key={resultIdx}
-                                                className="p-4 rounded-lg bg-white/5 border border-white/10 hover:border-primary/30 transition-colors"
-                                            >
-                                                <div className="flex items-start justify-between gap-3 mb-2">
-                                                    <div className="flex-1">
-                                                        <a
-                                                            href={result.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-sm font-medium text-primary hover:underline flex items-center gap-1"
-                                                        >
-                                                            {result.title}
-                                                            <ExternalLink className="h-3 w-3" />
-                                                        </a>
-                                                        <p className="text-xs text-muted-foreground mt-1">
-                                                            {result.snippet}
-                                                        </p>
+                                        {research.results.slice(0, maxSourcesPerQuery).map((result: SearchResult, resultIdx: number) => {
+                                            const isSelected = selectedResults.has(result.url)
+                                            return (
+                                                <div
+                                                    key={resultIdx}
+                                                    onClick={() => toggleSelection(result.url)}
+                                                    className={`p-4 rounded-lg border transition-all cursor-pointer group relative ${isSelected
+                                                        ? "bg-primary/10 border-primary/50"
+                                                        : "bg-white/5 border-white/10 hover:border-primary/30"
+                                                        }`}
+                                                >
+                                                    <div className="absolute top-4 right-4 text-primary/50 group-hover:text-primary transition-colors">
+                                                        {isSelected ? (
+                                                            <CheckSquare className="h-5 w-5 text-primary" />
+                                                        ) : (
+                                                            <Square className="h-5 w-5" />
+                                                        )}
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <div className="text-xs font-medium text-white/60">
-                                                            {Math.round(result.relevance_score * 100)}%
+                                                    <div className="flex items-start justify-between gap-3 mb-2 pr-8">
+                                                        <div className="flex-1">
+                                                            <a
+                                                                href={result.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="text-sm font-medium text-primary hover:underline flex items-center gap-1"
+                                                            >
+                                                                {result.title}
+                                                                <ExternalLink className="h-3 w-3" />
+                                                            </a>
+                                                            <p className="text-xs text-muted-foreground mt-1">
+                                                                {result.snippet}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <div className="text-xs font-medium text-white/60">
+                                                                {Math.round(result.relevance_score * 100)}%
+                                                            </div>
                                                         </div>
                                                     </div>
+                                                    {result.extracted_info && (
+                                                        <div className="mt-2 p-3 rounded bg-primary/5 border-l-2 border-primary/30">
+                                                            <p className="text-sm text-white/80">
+                                                                {result.extracted_info}
+                                                            </p>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                {result.extracted_info && (
-                                                    <div className="mt-2 p-3 rounded bg-primary/5 border-l-2 border-primary/30">
-                                                        <p className="text-sm text-white/80">
-                                                            {result.extracted_info}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 )}
                             </CardContent>

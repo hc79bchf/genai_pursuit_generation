@@ -20,10 +20,10 @@ export const usePursuitStore = create<PursuitStore>((set) => ({
             const pursuits = await fetchApi("/pursuits/")
 
             // Count non-deleted, active pursuits
+            // Inactive statuses: cancelled, stale, lost
             const activeCount = pursuits.filter((p: any) =>
                 !p.is_deleted &&
-                p.status !== 'cancelled' &&
-                p.status !== 'stale'
+                !['cancelled', 'stale', 'lost'].includes(p.status)
             ).length
 
             set({ activePursuitsCount: activeCount })

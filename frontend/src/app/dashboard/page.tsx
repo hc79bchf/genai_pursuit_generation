@@ -7,6 +7,11 @@ import { Plus, Clock, Loader2, TrendingUp, Users, Target, ArrowUpRight } from "l
 import { fetchApi } from "@/lib/api"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { PageGuide } from "@/components/PageGuide"
+import { ScrollAnimation } from "@/components/ScrollAnimation"
+import { BorderBeam } from "@/components/BorderBeam"
+import { Spotlight } from "@/components/Spotlight"
+import { Marquee } from "@/components/Marquee"
 
 interface Pursuit {
     id: string
@@ -54,44 +59,67 @@ export default function DashboardPage() {
             {/* Header Section */}
             <div className="flex justify-between items-end">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-white">Dashboard</h2>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-3xl font-bold tracking-tight text-white">Dashboard</h2>
+                        <PageGuide
+                            title="Dashboard Overview"
+                            description="The Dashboard provides a high-level view of your pursuit pipeline, key performance metrics, and recent activity."
+                            guidelines={[
+                                "Monitor active pursuits and their progress status.",
+                                "Track win rates and team engagement metrics.",
+                                "Quickly access recent pursuits or create new ones.",
+                                "Stay updated with the latest team activities and proposal changes."
+                            ]}
+                        />
+                    </div>
                     <p className="text-muted-foreground mt-1">Overview of your pursuit pipeline</p>
                 </div>
-                <Button asChild className="bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border border-white/10">
+                <Button asChild className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group">
                     <Link href="/dashboard/pursuits/new">
-                        <Plus className="mr-2 h-4 w-4" />
-                        New Pursuit
+                        <span className="relative z-10 flex items-center">
+                            <Plus className="mr-2 h-4 w-4" />
+                            New Pursuit
+                        </span>
+                        <BorderBeam
+                            size={60}
+                            duration={3}
+                            delay={0}
+                            borderWidth={1.5}
+                            colorFrom="#ffffff"
+                            colorTo="#a78bfa"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                        />
                     </Link>
                 </Button>
             </div>
 
             {/* Stats Grid */}
-            <div className="grid gap-4 md:grid-cols-3">
-                {stats.map((stat, i) => (
-                    <motion.div
-                        key={stat.title}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        className="glass-card rounded-xl p-6 relative overflow-hidden group"
-                    >
-                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <stat.icon className="h-24 w-24" />
+            <div className="relative flex h-[200px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-background md:shadow-xl">
+                <Marquee pauseOnHover className="[--duration:20s]">
+                    {stats.map((stat, i) => (
+                        <div key={stat.title} className="mx-4 w-[300px]">
+                            <Spotlight className="h-full p-6 group">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                    <stat.icon className="h-24 w-24" />
+                                </div>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className={cn("p-2 rounded-lg bg-white/5", stat.color)}>
+                                        <stat.icon className="h-5 w-5" />
+                                    </div>
+                                    <div className="flex items-center text-xs font-medium text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
+                                        {stat.trend} <ArrowUpRight className="h-3 w-3 ml-1" />
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-bold text-white">{stat.value}</h3>
+                                    <p className="text-sm text-muted-foreground">{stat.title}</p>
+                                </div>
+                            </Spotlight>
                         </div>
-                        <div className="flex justify-between items-start mb-4">
-                            <div className={cn("p-2 rounded-lg bg-white/5", stat.color)}>
-                                <stat.icon className="h-5 w-5" />
-                            </div>
-                            <div className="flex items-center text-xs font-medium text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
-                                {stat.trend} <ArrowUpRight className="h-3 w-3 ml-1" />
-                            </div>
-                        </div>
-                        <div className="space-y-1">
-                            <h3 className="text-2xl font-bold text-white">{stat.value}</h3>
-                            <p className="text-sm text-muted-foreground">{stat.title}</p>
-                        </div>
-                    </motion.div>
-                ))}
+                    ))}
+                </Marquee>
+                <div className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-background dark:from-background"></div>
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-gradient-to-l from-background dark:from-background"></div>
             </div>
 
             {/* Main Content Grid */}
@@ -105,14 +133,9 @@ export default function DashboardPage() {
 
                     <div className="grid gap-4">
                         {pursuits.map((pursuit, index) => (
-                            <motion.div
-                                key={pursuit.id}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 0.2 + index * 0.1 }}
-                            >
+                            <ScrollAnimation key={pursuit.id} delay={0.2 + index * 0.1} animation="fade-in-left">
                                 <Link href={`/dashboard/pursuits/${pursuit.id}`}>
-                                    <div className="glass-card rounded-xl p-4 flex items-center justify-between group cursor-pointer border border-white/5 hover:border-primary/50">
+                                    <Spotlight className="p-4 flex items-center justify-between group cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-primary/5">
                                         <div className="flex items-center space-x-4">
                                             <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-blue-500/20 flex items-center justify-center text-primary font-bold text-lg">
                                                 {pursuit.entity_name.charAt(0)}
@@ -154,17 +177,17 @@ export default function DashboardPage() {
                                                 {pursuit.status || 'Draft'}
                                             </div>
                                         </div>
-                                    </div>
+                                    </Spotlight>
                                 </Link>
-                            </motion.div>
+                            </ScrollAnimation>
                         ))}
                     </div>
                 </div>
 
                 {/* Analytics / Activity Feed */}
-                <div className="space-y-6">
+                <ScrollAnimation delay={0.4} animation="fade-in-right" className="space-y-6">
                     <h3 className="text-lg font-semibold text-white">Activity</h3>
-                    <div className="glass-card rounded-xl p-6 h-full min-h-[400px]">
+                    <Spotlight className="p-6 h-full min-h-[400px]">
                         <div className="space-y-6">
                             {[1, 2, 3].map((_, i) => (
                                 <div key={i} className="flex space-x-3 relative">
@@ -199,8 +222,8 @@ export default function DashboardPage() {
                                 <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
                             </div>
                         </div>
-                    </div>
-                </div>
+                    </Spotlight>
+                </ScrollAnimation>
             </div>
         </div>
     )

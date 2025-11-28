@@ -44,6 +44,11 @@ const sidebarItems = [
         icon: SearchCheck
     },
     {
+        title: "PPT Generation",
+        href: "/dashboard/ppt-generation",
+        icon: FileText
+    },
+    {
         title: "Analytics",
         href: "/dashboard/analytics",
         icon: PieChart

@@ -71,11 +71,66 @@ const config = {
                     "0%": { backgroundPosition: "200% 0" },
                     "100%": { backgroundPosition: "-200% 0" },
                 },
+                "fade-in-up": {
+                    "0%": {
+                        opacity: "0",
+                        transform: "translateY(20px)",
+                        filter: "blur(10px)",
+                    },
+                    "100%": {
+                        opacity: "1",
+                        transform: "translateY(0)",
+                        filter: "blur(0)",
+                    },
+                },
+                "fade-in-left": {
+                    "0%": {
+                        opacity: "0",
+                        transform: "translateX(-20px)",
+                        filter: "blur(10px)",
+                    },
+                    "100%": {
+                        opacity: "1",
+                        transform: "translateX(0)",
+                        filter: "blur(0)",
+                    },
+                },
+                "fade-in-right": {
+                    "0%": {
+                        opacity: "0",
+                        transform: "translateX(20px)",
+                        filter: "blur(10px)",
+                    },
+                    "100%": {
+                        opacity: "1",
+                        transform: "translateX(0)",
+                        filter: "blur(0)",
+                    },
+                },
+                "border-beam": {
+                    "100%": {
+                        "offset-distance": "100%",
+                    },
+                },
+                marquee: {
+                    from: { transform: "translateX(0)" },
+                    to: { transform: "translateX(calc(-100% - var(--gap)))" },
+                },
+                "marquee-vertical": {
+                    from: { transform: "translateY(0)" },
+                    to: { transform: "translateY(calc(-100% - var(--gap)))" },
+                },
             },
             animation: {
                 "accordion-down": "accordion-down 0.2s ease-out",
                 "accordion-up": "accordion-up 0.2s ease-out",
                 "shimmer": "shimmer 2s linear infinite",
+                "fade-in-up": "fade-in-up 0.6s ease-out both",
+                "fade-in-left": "fade-in-left 0.6s ease-out both",
+                "fade-in-right": "fade-in-right 0.6s ease-out both",
+                "border-beam": "border-beam calc(var(--duration)*1s) infinite linear",
+                marquee: "marquee var(--duration) infinite linear",
+                "marquee-vertical": "marquee-vertical var(--duration) linear infinite",
             },
         },
     },
