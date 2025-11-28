@@ -1,21 +1,40 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional
-import redis
-from mem0 import Memory
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class MemoryService:
     def __init__(self):
-        self.memory = Memory.from_config(settings.MEM0_CONFIG)
-        self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        self.memory = None
+        self.redis_client = None
+
+        # Try to initialize mem0 (ChromaDB) - gracefully handle if unavailable
+        try:
+            from mem0 import Memory
+            self.memory = Memory.from_config(settings.MEM0_CONFIG)
+            logger.info("Memory service initialized with mem0/ChromaDB")
+        except Exception as e:
+            logger.warning(f"Could not initialize mem0/ChromaDB: {e}. Long-term memory disabled.")
+
+        # Try to initialize Redis - gracefully handle if unavailable
+        try:
+            import redis
+            self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+            # Test connection
+            self.redis_client.ping()
+            logger.info("Memory service initialized with Redis")
+        except Exception as e:
+            logger.warning(f"Could not connect to Redis: {e}. Short-term memory disabled.")
 
     def add_long_term(self, text: str, user_id: str, metadata: Optional[Dict[str, Any]] = None):
         """
         Add text to long-term memory (mem0/ChromaDB).
         """
+        if not self.memory:
+            logger.debug("Long-term memory not available, skipping add")
+            return None
         try:
             result = self.memory.add(text, user_id=user_id, metadata=metadata)
             logger.info(f"Added to long-term memory for user {user_id}. Result: {result}")
@@ -27,11 +46,14 @@ class MemoryService:
         """
         Search long-term memory.
         """
+        if not self.memory:
+            logger.debug("Long-term memory not available, returning empty results")
+            return []
         try:
             results = self.memory.search(query, user_id=user_id, limit=limit)
             logger.info(f"Memory search raw results type: {type(results)}")
             logger.info(f"Memory search raw results: {results}")
-            
+
             if isinstance(results, dict) and "results" in results:
                 return results["results"]
             return results
@@ -43,6 +65,9 @@ class MemoryService:
         """
         Add a message to short-term memory (Redis list).
         """
+        if not self.redis_client:
+            logger.debug("Short-term memory not available, skipping add")
+            return
         try:
             try:
                 message = json.dumps({"role": role, "content": content})
@@ -62,6 +87,9 @@ class MemoryService:
         """
         Get recent conversation history from short-term memory.
         """
+        if not self.redis_client:
+            logger.debug("Short-term memory not available, returning empty results")
+            return []
         try:
             key = f"session:{session_id}:history"
             # Get last 'limit' messages
@@ -75,6 +103,9 @@ class MemoryService:
         """
         Clear short-term memory for a session.
         """
+        if not self.redis_client:
+            logger.debug("Short-term memory not available, skipping clear")
+            return
         try:
             key = f"session:{session_id}:history"
             self.redis_client.delete(key)

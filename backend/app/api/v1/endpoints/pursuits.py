@@ -7,7 +7,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -238,22 +238,7 @@ async def extract_metadata(
             pursuit_file.extracted_text = rfp_text
             pursuit_file.extraction_status = "completed"
             db.add(pursuit_file)
-
-        # Save HTML file record
-        if os.path.exists(html_path):
-            html_file_size = os.path.getsize(html_path)
-            db_html_file = PursuitFile(
-                pursuit_id=pursuit_id,
-                file_name=html_filename,
-                file_type="additional_reference", # Use allowed type
-                file_path=html_path,
-                file_size_bytes=html_file_size,
-                mime_type="text/html",
-                uploaded_at=datetime.utcnow()
-            )
-            db.add(db_html_file)
-
-        await db.commit()
+            await db.commit()
             
     except Exception as e:
         logger.error(f"Error reading file: {e}", exc_info=True)
@@ -327,7 +312,7 @@ async def trigger_gap_analysis(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Trigger gap analysis for a pursuit.
+    Trigger gap analysis for a pursuit (runs synchronously).
     """
     result = await db.execute(
         select(Pursuit)
@@ -338,12 +323,44 @@ async def trigger_gap_analysis(
     if not pursuit:
         raise HTTPException(status_code=404, detail="Pursuit not found")
 
-    # Trigger Celery task
-    from app.tasks import perform_gap_analysis_task
-    task = perform_gap_analysis_task.delay(str(pursuit_id), template_details, str(current_user.id))
+    # Prepare metadata for gap analysis
+    pursuit_metadata = {
+        "id": str(pursuit.id),
+        "entity_name": pursuit.entity_name,
+        "industry": pursuit.industry,
+        "service_types": pursuit.service_types or [],
+        "technologies": pursuit.technologies or [],
+        "requirements_text": pursuit.requirements_text,
+        "submission_due_date": str(pursuit.submission_due_date) if pursuit.submission_due_date else None,
+        "estimated_fees_usd": float(pursuit.estimated_fees_usd) if pursuit.estimated_fees_usd else None,
+    }
 
-    # We can return the pursuit immediately, the frontend will poll or we can return task id
-    # For simplicity, we return the pursuit. The frontend can poll the pursuit endpoint to see if gap_analysis_result is populated.
+    # Run gap analysis synchronously
+    from app.services.ai_service.llm_service import LLMService
+    from app.services.ai_service.gap_analysis_agent import GapAnalysisAgent
+
+    try:
+        llm_service = LLMService()
+        agent = GapAnalysisAgent(llm_service)
+        gap_result = await agent.analyze(pursuit_metadata, template_details, str(current_user.id))
+
+        # Update pursuit with gap analysis result
+        pursuit.gap_analysis_result = gap_result
+        pursuit.updated_at = datetime.utcnow()
+        db.add(pursuit)
+        await db.commit()
+
+    except Exception as e:
+        logger.error(f"Gap analysis failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Gap analysis failed: {str(e)}")
+
+    # Re-query to ensure files are loaded
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
 
     return pursuit
 
@@ -394,14 +411,10 @@ async def trigger_research(
     *,
     db: AsyncSession = Depends(get_db),
     pursuit_id: UUID,
-    max_results_per_query: int = Query(default=5, ge=1, le=5, description="Number of sources to return per query (1-5)"),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Trigger deep research using search queries from gap analysis.
-
-    Args:
-        max_results_per_query: Number of sources to return per query (1-5, default 5)
+    Trigger deep research using search queries from gap analysis (runs synchronously).
     """
     result = await db.execute(
         select(Pursuit)
@@ -415,11 +428,48 @@ async def trigger_research(
     if not pursuit.gap_analysis_result:
         raise HTTPException(status_code=400, detail="Gap analysis must be completed first")
 
-    # Trigger Celery task
-    from app.tasks import perform_research_task
-    task = perform_research_task.delay(str(pursuit_id), str(current_user.id), 5)
+    # Extract search queries from gap analysis
+    search_queries = pursuit.gap_analysis_result.get("search_queries", [])
+    if not search_queries:
+        raise HTTPException(status_code=400, detail="No search queries found in gap analysis")
 
-    # Return the pursuit immediately, frontend will poll for results
+    # Prepare pursuit context
+    pursuit_context = {
+        "id": str(pursuit.id),
+        "entity_name": pursuit.entity_name,
+        "industry": pursuit.industry,
+        "service_types": pursuit.service_types or [],
+        "technologies": pursuit.technologies or [],
+        "requirements_text": pursuit.requirements_text,
+    }
+
+    # Run research synchronously
+    from app.services.ai_service.llm_service import LLMService
+    from app.services.ai_service.research_agent import ResearchAgent
+
+    try:
+        llm_service = LLMService()
+        agent = ResearchAgent(llm_service)
+        research_result = await agent.research(search_queries, pursuit_context, str(current_user.id))
+
+        # Update pursuit with research result
+        pursuit.research_result = research_result
+        pursuit.updated_at = datetime.utcnow()
+        db.add(pursuit)
+        await db.commit()
+
+    except Exception as e:
+        logger.error(f"Research failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Research failed: {str(e)}")
+
+    # Re-query to ensure files are loaded
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+
     return pursuit
 
 @router.post("/{pursuit_id}/generate-ppt-outline", response_model=Dict[str, Any])
