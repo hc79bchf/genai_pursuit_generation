@@ -25,7 +25,7 @@ interface QueryResult {
 
 export default function PPTGenerationPage() {
     const params = useParams()
-    const id = params.id as string
+    const id = params?.id as string
 
     const [pursuit, setPursuit] = useState<any>(null)
     const [loading, setLoading] = useState(true)

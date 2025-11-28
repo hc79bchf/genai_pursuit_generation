@@ -1,4 +1,4 @@
-# Dockerfile
+# Dockerfile for Railway deployment
 FROM python:3.11-slim as builder
 
 WORKDIR /app
@@ -26,9 +26,7 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONPATH=/app
 
-# Install runtime dependencies (libpq for postgres)
 # Install runtime dependencies (libpq for postgres, nodejs, chromium for marp)
-# Use default debian nodejs (usually v18+ in bookworm)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq-dev curl gnupg ca-certificates nodejs npm chromium && \
     npm install -g @marp-team/marp-cli && \
@@ -44,12 +42,19 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
+# Create directories for data persistence
+RUN mkdir -p /app/chroma_data /app/uploads
+
 # Create a non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Railway uses PORT env variable
+ENV PORT=8000
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Use entrypoint script
+CMD ["./entrypoint.sh"]
