@@ -404,7 +404,7 @@ export default function DeepSearchPage() {
                         ))}
                     </select>
                 </div>
-                {pursuit.research_result && !isResearching && (
+                {pursuit.research_result && !(isResearching && pursuitId === selectedPursuitId) && (
                     <Button
                         size="lg"
                         variant="outline"
@@ -418,11 +418,11 @@ export default function DeepSearchPage() {
                 <Button
                     size="lg"
                     onClick={handleRunResearch}
-                    disabled={isResearching || searchQueries.length === 0}
+                    disabled={(isResearching && pursuitId === selectedPursuitId) || searchQueries.length === 0}
                     className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
                 >
                     <span className="relative z-10 flex items-center gap-2">
-                        {isResearching ? (
+                        {isResearching && pursuitId === selectedPursuitId ? (
                             <>
                                 <Loader2 className="h-5 w-5 animate-spin" />
                                 Researching...
@@ -446,8 +446,8 @@ export default function DeepSearchPage() {
                 </Button>
             </div>
 
-            {/* Progress Tracker */}
-            {isResearching && (
+            {/* Progress Tracker - Only show for the pursuit being researched */}
+            {isResearching && pursuitId === selectedPursuitId && (
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
