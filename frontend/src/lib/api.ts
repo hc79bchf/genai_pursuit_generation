@@ -86,6 +86,7 @@ export const api = {
     getPursuit: (id: string) => fetchApi(`/pursuits/${id}`),
     getPursuits: () => fetchApi('/pursuits/'),
     getActivities: (limit: number = 10) => fetchApi(`/activities/?limit=${limit}`),
+    getDashboardStats: () => fetchApi('/stats/dashboard'),
     generatePPTOutline: (id: string, customResearch?: any) => fetchApi(`/pursuits/${id}/generate-ppt-outline`, {
         method: 'POST',
         body: JSON.stringify({ custom_research: customResearch })

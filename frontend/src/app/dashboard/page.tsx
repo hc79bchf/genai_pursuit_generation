@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Plus, Clock, Loader2, TrendingUp, Users, Target, ArrowUpRight } from "lucide-react"
+import { Plus, Clock, Loader2, TrendingUp, Users, Target } from "lucide-react"
 import { fetchApi, api } from "@/lib/api"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -36,20 +36,32 @@ interface Activity {
     pursuit_name: string | null
 }
 
+interface DashboardStats {
+    active_pursuits: number
+    total_pursuits: number
+    won_pursuits: number
+    lost_pursuits: number
+    win_rate: number
+    team_members: number
+}
+
 export default function DashboardPage() {
     const [pursuits, setPursuits] = useState<Pursuit[]>([])
     const [activities, setActivities] = useState<Activity[]>([])
+    const [stats, setStats] = useState<DashboardStats | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
         async function loadData() {
             try {
-                const [pursuitsData, activitiesData] = await Promise.all([
+                const [pursuitsData, activitiesData, statsData] = await Promise.all([
                     fetchApi("/pursuits/"),
-                    api.getActivities(5).catch(() => []) // Gracefully handle if no activities
+                    api.getActivities(5).catch(() => []),
+                    api.getDashboardStats().catch(() => null)
                 ])
                 setPursuits(pursuitsData)
                 setActivities(activitiesData)
+                setStats(statsData)
             } catch (error) {
                 console.error("Failed to load data", error)
             } finally {
@@ -67,10 +79,25 @@ export default function DashboardPage() {
         )
     }
 
-    const stats = [
-        { title: "Active Pursuits", value: pursuits.length.toString(), icon: Target, trend: "+12%", color: "text-blue-400" },
-        { title: "Win Rate", value: "68%", icon: TrendingUp, trend: "+5%", color: "text-green-400" },
-        { title: "Team Members", value: "12", icon: Users, trend: "+2", color: "text-purple-400" },
+    const statsData = [
+        {
+            title: "Active Pursuits",
+            value: (stats?.active_pursuits ?? pursuits.length).toString(),
+            icon: Target,
+            color: "text-blue-400"
+        },
+        {
+            title: "Win Rate",
+            value: `${stats?.win_rate ?? 0}%`,
+            icon: TrendingUp,
+            color: "text-green-400"
+        },
+        {
+            title: "Team Members",
+            value: (stats?.team_members ?? 1).toString(),
+            icon: Users,
+            color: "text-purple-400"
+        },
     ]
 
     // Format action text for display
@@ -148,7 +175,7 @@ export default function DashboardPage() {
             {/* Stats Grid */}
             <div className="relative flex h-[200px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-background md:shadow-xl">
                 <Marquee pauseOnHover className="[--duration:20s]">
-                    {stats.map((stat, i) => (
+                    {statsData.map((stat) => (
                         <div key={stat.title} className="mx-4 w-[300px]">
                             <Spotlight className="h-full p-6 group">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -157,9 +184,6 @@ export default function DashboardPage() {
                                 <div className="flex justify-between items-start mb-4">
                                     <div className={cn("p-2 rounded-lg bg-white/5", stat.color)}>
                                         <stat.icon className="h-5 w-5" />
-                                    </div>
-                                    <div className="flex items-center text-xs font-medium text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
-                                        {stat.trend} <ArrowUpRight className="h-3 w-3 ml-1" />
                                     </div>
                                 </div>
                                 <div className="space-y-1">
