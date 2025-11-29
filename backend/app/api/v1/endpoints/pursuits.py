@@ -26,6 +26,7 @@ from app.schemas import pursuit as pursuit_schemas
 from app.schemas import file as file_schemas
 from app.core import security
 from app.api import deps # We might need to create deps.py for get_current_user
+from app.services.activity_service import log_activity
 
 router = APIRouter()
 
@@ -81,7 +82,7 @@ async def create_pursuit(
     )
     db.add(pursuit)
     await db.commit()
-    
+
     # Re-query to ensure files are loaded (even if empty) to avoid MissingGreenlet
     result = await db.execute(
         select(Pursuit)
@@ -89,6 +90,18 @@ async def create_pursuit(
         .where(Pursuit.id == pursuit.id)
     )
     pursuit = result.scalars().first()
+
+    # Log activity
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        action="create",
+        entity_type="pursuit",
+        entity_id=pursuit.id,
+        pursuit_id=pursuit.id,
+        details={"entity_name": pursuit.entity_name}
+    )
+
     return pursuit
 
 @router.get("/{pursuit_id}", response_model=pursuit_schemas.Pursuit)
@@ -295,12 +308,23 @@ async def extract_metadata(
     
     # Store full extraction in outline_json or similar if needed, or just update fields
     # For now, we updated the main fields.
-    
+
     pursuit.updated_at = datetime.utcnow()
     db.add(pursuit)
     await db.commit()
     await db.refresh(pursuit)
-    
+
+    # Log activity
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        action="extract",
+        entity_type="metadata",
+        entity_id=pursuit.id,
+        pursuit_id=pursuit.id,
+        details={"entity_name": pursuit.entity_name}
+    )
+
     return pursuit
 
 @router.post("/{pursuit_id}/gap-analysis", response_model=pursuit_schemas.Pursuit)
@@ -361,6 +385,17 @@ async def trigger_gap_analysis(
         .where(Pursuit.id == pursuit_id)
     )
     pursuit = result.scalars().first()
+
+    # Log activity
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        action="gap_analysis",
+        entity_type="pursuit",
+        entity_id=pursuit.id,
+        pursuit_id=pursuit.id,
+        details={"entity_name": pursuit.entity_name}
+    )
 
     return pursuit
 
@@ -469,6 +504,17 @@ async def trigger_research(
         .where(Pursuit.id == pursuit_id)
     )
     pursuit = result.scalars().first()
+
+    # Log activity
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        action="research",
+        entity_type="pursuit",
+        entity_id=pursuit.id,
+        pursuit_id=pursuit.id,
+        details={"entity_name": pursuit.entity_name, "queries_count": len(search_queries)}
+    )
 
     return pursuit
 
@@ -630,7 +676,18 @@ async def generate_ppt_outline(
         db.add(pursuit)
         await db.commit()
         await db.refresh(pursuit)
-        
+
+        # Log activity
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            action="generate_ppt",
+            entity_type="presentation",
+            entity_id=pursuit.id,
+            pursuit_id=pursuit.id,
+            details={"entity_name": pursuit.entity_name}
+        )
+
         return {
             "markdown": markdown_content,
             "preview_html": preview_html,

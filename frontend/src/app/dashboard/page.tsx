@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Plus, Clock, Loader2, TrendingUp, Users, Target, ArrowUpRight } from "lucide-react"
-import { fetchApi } from "@/lib/api"
+import { fetchApi, api } from "@/lib/api"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { PageGuide } from "@/components/PageGuide"
@@ -22,22 +22,41 @@ interface Pursuit {
     progress?: number
 }
 
+interface Activity {
+    id: string
+    user_id: string | null
+    pursuit_id: string | null
+    action: string
+    entity_type: string
+    entity_id: string | null
+    details: Record<string, any> | null
+    created_at: string
+    user_name: string | null
+    user_email: string | null
+    pursuit_name: string | null
+}
+
 export default function DashboardPage() {
     const [pursuits, setPursuits] = useState<Pursuit[]>([])
+    const [activities, setActivities] = useState<Activity[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
-        async function loadPursuits() {
+        async function loadData() {
             try {
-                const data = await fetchApi("/pursuits/")
-                setPursuits(data)
+                const [pursuitsData, activitiesData] = await Promise.all([
+                    fetchApi("/pursuits/"),
+                    api.getActivities(5).catch(() => []) // Gracefully handle if no activities
+                ])
+                setPursuits(pursuitsData)
+                setActivities(activitiesData)
             } catch (error) {
-                console.error("Failed to load pursuits", error)
+                console.error("Failed to load data", error)
             } finally {
                 setIsLoading(false)
             }
         }
-        loadPursuits()
+        loadData()
     }, [])
 
     if (isLoading) {
@@ -53,6 +72,39 @@ export default function DashboardPage() {
         { title: "Win Rate", value: "68%", icon: TrendingUp, trend: "+5%", color: "text-green-400" },
         { title: "Team Members", value: "12", icon: Users, trend: "+2", color: "text-purple-400" },
     ]
+
+    // Format action text for display
+    const formatAction = (action: string, entityType: string) => {
+        const actionMap: Record<string, string> = {
+            'create': 'created',
+            'update': 'updated',
+            'delete': 'deleted',
+            'upload': 'uploaded a file',
+            'extract': 'extracted metadata',
+            'gap_analysis': 'ran gap analysis',
+            'research': 'completed research',
+            'generate_ppt': 'generated presentation',
+        }
+        const formattedAction = actionMap[action.toLowerCase()] || action
+        const formattedEntity = entityType.replace(/_/g, ' ')
+        return `${formattedAction} ${formattedEntity}`
+    }
+
+    // Format time ago
+    const formatTimeAgo = (dateString: string) => {
+        const date = new Date(dateString)
+        const now = new Date()
+        const diffMs = now.getTime() - date.getTime()
+        const diffMins = Math.floor(diffMs / 60000)
+        const diffHours = Math.floor(diffMs / 3600000)
+        const diffDays = Math.floor(diffMs / 86400000)
+
+        if (diffMins < 1) return 'Just now'
+        if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`
+        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+        if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
+        return date.toLocaleDateString()
+    }
 
     return (
         <div className="space-y-8">
@@ -189,20 +241,31 @@ export default function DashboardPage() {
                     <h3 className="text-lg font-semibold text-white">Activity</h3>
                     <Spotlight className="p-6 h-full min-h-[400px]">
                         <div className="space-y-6">
-                            {[1, 2, 3].map((_, i) => (
-                                <div key={i} className="flex space-x-3 relative">
-                                    {i !== 2 && <div className="absolute left-[15px] top-8 bottom-[-24px] w-0.5 bg-white/10" />}
-                                    <div className="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0 z-10">
-                                        <div className="h-2 w-2 rounded-full bg-primary" />
+                            {activities.length > 0 ? (
+                                activities.map((activity, i) => (
+                                    <div key={activity.id} className="flex space-x-3 relative">
+                                        {i !== activities.length - 1 && <div className="absolute left-[15px] top-8 bottom-[-24px] w-0.5 bg-white/10" />}
+                                        <div className="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0 z-10">
+                                            <div className="h-2 w-2 rounded-full bg-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-white">
+                                                <span className="font-semibold">{activity.user_name?.split(' ')[0] || 'User'}</span>{' '}
+                                                {formatAction(activity.action, activity.entity_type)}
+                                                {activity.pursuit_name && (
+                                                    <> for <span className="text-primary">{activity.pursuit_name}</span></>
+                                                )}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">{formatTimeAgo(activity.created_at)}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-sm text-white">
-                                            <span className="font-semibold">Sarah</span> updated the proposal for <span className="text-primary">Acme Corp</span>
-                                        </p>
-                                        <p className="text-xs text-muted-foreground mt-1">2 hours ago</p>
-                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center text-muted-foreground py-8">
+                                    <p className="text-sm">No recent activity</p>
+                                    <p className="text-xs mt-1">Activities will appear here as you work on pursuits</p>
                                 </div>
-                            ))}
+                            )}
                         </div>
 
                         <div className="mt-8 pt-8 border-t border-white/10">
