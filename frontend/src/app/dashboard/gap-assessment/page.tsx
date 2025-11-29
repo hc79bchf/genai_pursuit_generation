@@ -1,17 +1,25 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { fetchApi } from "@/lib/api"
 import { templates } from "@/lib/data"
-import { Loader2, AlertCircle, Check, ArrowRight, Sparkles, FileText, Edit2, Trash2, Plus, X, Save } from "lucide-react"
+import { Loader2, AlertCircle, Check, ArrowRight, Sparkles, FileText, Edit2, Trash2, Plus, X, Save, ChevronDown, Briefcase } from "lucide-react"
 import { MetadataDisplay } from "@/components/metadata-display"
 import Link from "next/link"
 import { PageGuide } from "@/components/PageGuide"
 import { BorderBeam } from "@/components/BorderBeam"
+import { cn } from "@/lib/utils"
+
+interface PursuitListItem {
+    id: string
+    entity_name: string
+    status: string
+    selected_template_id?: string
+}
 
 interface Pursuit {
     id: string
@@ -31,6 +39,7 @@ interface Pursuit {
     estimated_fees_usd?: number
     expected_format?: string
     requirements_text?: string
+    selected_template_id?: string
     gap_analysis_result?: {
         gaps: string[]
         search_queries: string[]
@@ -40,6 +49,9 @@ interface Pursuit {
 
 export default function GapAssessmentPage() {
     const [pursuit, setPursuit] = useState<Pursuit | null>(null)
+    const [pursuits, setPursuits] = useState<PursuitListItem[]>([])
+    const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(null)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
     const [selectedTemplate, setSelectedTemplate] = useState<any>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -48,40 +60,71 @@ export default function GapAssessmentPage() {
     const [editedGaps, setEditedGaps] = useState<string[]>([])
     const [editedQueries, setEditedQueries] = useState<string[]>([])
     const [editedReasoning, setEditedReasoning] = useState("")
+    const dropdownRef = useRef<HTMLDivElement>(null)
 
+    // Close dropdown when clicking outside
     useEffect(() => {
-        const loadData = async () => {
-            try {
-                // 1. Fetch latest pursuit
-                // Ideally we'd have an endpoint for "latest" or pass ID via query param
-                // For now, fetch all and take the first one (assuming sorted by date desc or we sort client side)
-                const pursuits = await fetchApi("/pursuits/")
-                if (pursuits && pursuits.length > 0) {
-                    // Sort by created_at desc just in case
-                    const sorted = pursuits.sort((a: any, b: any) =>
-                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
-                    // We need full details for the pursuit, so fetch individual
-                    const latestId = sorted[0].id
-                    const fullPursuit = await fetchApi(`/pursuits/${latestId}`)
-                    setPursuit(fullPursuit)
-                }
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setDropdownOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
 
-                // 2. Get selected template
-                const templateId = localStorage.getItem("selectedTemplateId")
-                if (templateId) {
-                    const template = templates.find(t => t.id === templateId)
-                    setSelectedTemplate(template || null)
+    // Load pursuits list on mount
+    useEffect(() => {
+        const loadPursuits = async () => {
+            try {
+                const data = await fetchApi("/pursuits/")
+                // Filter to only active pursuits
+                const activePursuits = data.filter((p: PursuitListItem) =>
+                    !['cancelled', 'stale', 'lost', 'won'].includes(p.status)
+                )
+                setPursuits(activePursuits)
+
+                // Auto-select the first pursuit if available
+                if (activePursuits.length > 0) {
+                    setSelectedPursuitId(activePursuits[0].id)
                 }
             } catch (error) {
-                console.error("Failed to load data:", error)
+                console.error("Failed to load pursuits:", error)
             } finally {
                 setIsLoading(false)
             }
         }
-
-        loadData()
+        loadPursuits()
     }, [])
+
+    // Load full pursuit details when selection changes
+    useEffect(() => {
+        const loadPursuitDetails = async () => {
+            if (!selectedPursuitId) {
+                setPursuit(null)
+                setSelectedTemplate(null)
+                return
+            }
+
+            try {
+                const fullPursuit = await fetchApi(`/pursuits/${selectedPursuitId}`)
+                setPursuit(fullPursuit)
+
+                // Set template from pursuit's selected_template_id
+                if (fullPursuit.selected_template_id) {
+                    const template = templates.find(t => t.id === fullPursuit.selected_template_id)
+                    setSelectedTemplate(template || null)
+                } else {
+                    setSelectedTemplate(null)
+                }
+            } catch (error) {
+                console.error("Failed to load pursuit details:", error)
+            }
+        }
+        loadPursuitDetails()
+    }, [selectedPursuitId])
+
+    const selectedPursuitListItem = pursuits.find(p => p.id === selectedPursuitId)
 
     const handleRunAnalysis = async () => {
         if (!pursuit || !selectedTemplate) return
@@ -197,22 +240,97 @@ export default function GapAssessmentPage() {
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-10">
             {/* Header */}
-            <div>
-                <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-white">Gap Assessment</h1>
-                    <PageGuide
-                        title="Gap Assessment"
-                        description="The Gap Assessment page helps you identify missing information in your pursuit by comparing extracted RFP data against a selected proposal template."
-                        guidelines={[
-                            "Review the extracted RFP metadata in the left column.",
-                            "Select a target proposal outline template from the library.",
-                            "Run the AI Gap Analysis Agent to identify missing requirements.",
-                            "Review identified gaps and recommended search queries.",
-                            "Edit the analysis results if needed before proceeding to Deep Search."
-                        ]}
-                    />
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-2xl font-bold tracking-tight text-white">Gap Assessment</h1>
+                        <PageGuide
+                            title="Gap Assessment"
+                            description="The Gap Assessment page helps you identify missing information in your pursuit by comparing extracted RFP data against a selected proposal template."
+                            guidelines={[
+                                "First, select a pursuit from the dropdown to analyze.",
+                                "Review the extracted RFP metadata in the left column.",
+                                "The target template is loaded from the pursuit's selected template.",
+                                "Run the AI Gap Analysis Agent to identify missing requirements.",
+                                "Review identified gaps and recommended search queries.",
+                                "Edit the analysis results if needed before proceeding to Deep Search."
+                            ]}
+                        />
+                    </div>
+                    <p className="text-muted-foreground mt-1">Analyze the gap between your extracted RFP data and the selected proposal outline.</p>
                 </div>
-                <p className="text-muted-foreground mt-1">Analyze the gap between your extracted RFP data and the selected proposal outline.</p>
+
+                {/* Pursuit Selector */}
+                <div className="relative" ref={dropdownRef}>
+                    <button
+                        onClick={() => setDropdownOpen(!dropdownOpen)}
+                        className={cn(
+                            "flex items-center gap-3 px-4 py-3 rounded-xl border transition-all min-w-[280px]",
+                            selectedPursuitId
+                                ? "bg-primary/10 border-primary/30 hover:border-primary/50"
+                                : "bg-white/5 border-white/10 hover:border-white/20"
+                        )}
+                    >
+                        <Briefcase className={cn(
+                            "h-5 w-5",
+                            selectedPursuitId ? "text-primary" : "text-muted-foreground"
+                        )} />
+                        <div className="flex-1 text-left">
+                            <div className="text-xs text-muted-foreground">Analyzing</div>
+                            <div className={cn(
+                                "text-sm font-medium truncate",
+                                selectedPursuitId ? "text-white" : "text-muted-foreground"
+                            )}>
+                                {isLoading ? "Loading..." : selectedPursuitListItem?.entity_name || "Select a pursuit"}
+                            </div>
+                        </div>
+                        <ChevronDown className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            dropdownOpen && "rotate-180"
+                        )} />
+                    </button>
+
+                    {dropdownOpen && (
+                        <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-white/10 rounded-xl shadow-xl z-50 py-2 max-h-80 overflow-y-auto">
+                            <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-white/10 mb-1">
+                                Active Pursuits
+                            </div>
+                            {pursuits.length === 0 ? (
+                                <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                                    No active pursuits found
+                                </div>
+                            ) : (
+                                pursuits.map((p) => {
+                                    const currentTemplate = templates.find(t => t.id === p.selected_template_id)
+                                    return (
+                                        <button
+                                            key={p.id}
+                                            onClick={() => {
+                                                setSelectedPursuitId(p.id)
+                                                setDropdownOpen(false)
+                                            }}
+                                            className={cn(
+                                                "w-full px-3 py-3 text-left hover:bg-white/5 flex items-center gap-3 transition-colors",
+                                                selectedPursuitId === p.id && "bg-primary/10"
+                                            )}
+                                        >
+                                            <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm text-white truncate">{p.entity_name}</div>
+                                                <div className="text-xs text-muted-foreground truncate">
+                                                    {currentTemplate ? `Template: ${currentTemplate.title}` : "No template selected"}
+                                                </div>
+                                            </div>
+                                            {selectedPursuitId === p.id && (
+                                                <Check className="h-4 w-4 text-primary shrink-0" />
+                                            )}
+                                        </button>
+                                    )
+                                })
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
