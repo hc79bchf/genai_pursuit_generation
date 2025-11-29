@@ -11,8 +11,8 @@ AI-powered RFP response platform that enables professional services firms to rap
 ## Critical Conventions
 
 ### AI Services & Models
-- **All AI agents:** Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`)
-- **Web search:** Claude API web search (NOT Brave Search)
+- **All AI agents:** Claude 3 Haiku (`claude-3-haiku-20240307`) - configurable via `LLM_MODEL_FAST` and `LLM_MODEL_SMART`
+- **Web search:** Brave Search API
 - **Embeddings:** OpenAI text-embedding-3-small (1536 dimensions)
 - **Agent architecture:** Custom sequential (NOT LangGraph, NOT CrewAI)
 
@@ -70,7 +70,7 @@ Agent 1: Metadata Extraction (~15-30s)
     ↓
 Agent 2: Gap Analysis (~30s)
     ↓
-Agent 3: Research (~120s) ← Uses Claude API web search
+Agent 3: Research (~120s) ← Uses Brave Search API
     ↓
 Agent 4: Synthesis (~60-90s)
     ↓
@@ -92,9 +92,9 @@ Every agent follows this structure:
 Location: `backend/app/services/ai_service/`
 - `metadata_agent.py` - RFP metadata extraction with memory
 - `gap_analysis_agent.py` - Coverage gap identification
-- `research_agent.py` - Web research using Claude API search
-- `synthesis_agent.py` - Outline synthesis with citations
-- Document generation agent uses Claude Skills (not implemented yet)
+- `research_agent.py` - Web research using Brave Search API
+- `ppt_outline_agent.py` - PPT outline generation and document creation
+- `llm_service.py` - Anthropic Claude client wrapper
 
 ### Memory Service Pattern
 Location: `backend/app/services/memory_service.py`
@@ -144,7 +144,7 @@ Every agent call must track:
 - `backend/app/schemas/` - Pydantic request/response models
 
 ### Infrastructure
-- `docker-compose.yml` - 7 services (backend, frontend, postgres, redis, chroma, celery, nginx)
+- `docker-compose.yml` - 8 services (backend, frontend, worker, mcp-chroma, mcp-postgres, db, chroma, redis)
 - `backend/requirements.txt` - Python dependencies
 - `frontend/package.json` - Node dependencies
 
@@ -160,20 +160,21 @@ Every agent call must track:
 ### Implemented ✅
 - [x] Metadata Extraction Agent (with memory, token tracking)
 - [x] Gap Analysis Agent (with memory, token tracking)
-- [x] Research Agent (with Claude API web search, token tracking)
-- [x] Synthesis Agent (memory, streaming, token tracking)
-- [x] Document Generation Agent (Claude Skills for pptx/docx)
+- [x] Research Agent (with Brave Search API, token tracking)
+- [x] PPT Outline Agent (document generation with PPTX export)
 - [x] Token tracking utility (cost estimation per agent)
 - [x] Memory services (short-term Redis, long-term PostgreSQL, episodic ChromaDB)
 - [x] Document ingestion service
 - [x] Test infrastructure (pytest with markers)
-- [x] Test data (`test-data/`)
+- [x] API Routes (FastAPI endpoints) - Full CRUD for pursuits, auth, file uploads
+- [x] Frontend components - Dashboard, Gap Assessment, Deep Search, PPT Generation
+- [x] Docker containerization with 8 services
+- [x] Activity-based token refresh mechanism
+- [x] Pursuit status management (proposal lifecycle)
 
 ### Not Started ❌
-- [ ] API Routes (FastAPI endpoints)
-- [ ] Frontend components
 - [ ] CI/CD (GitHub Actions)
-- [ ] Production deployment
+- [ ] Production deployment (Railway configured but not live)
 
 ## Testing Strategy
 
@@ -217,7 +218,7 @@ LOG_LEVEL=INFO                       # Logging level
 
 ## Important Constraints
 
-1. **No Brave Search** - Use Claude API web search instead
+1. **Use Brave Search API** - For web research in Research Agent
 2. **Async everywhere** - All DB/API operations must be async
 3. **Memory integration** - All agents MUST use memory services
 4. **No hardcoded secrets** - Use environment variables
@@ -249,14 +250,20 @@ self.memory_service.add_long_term(result, user_id)
 
 ### Research Agent
 ```python
-# Use Claude API web search (NOT Brave)
-search_results = await self.llm_service.web_search(query)
+# Use Brave Search API for web research
+async with aiohttp.ClientSession() as session:
+    async with session.get(
+        "https://api.search.brave.com/res/v1/web/search",
+        params={"q": query},
+        headers={"X-Subscription-Token": settings.BRAVE_API_KEY}
+    ) as response:
+        results = await response.json()
 
-# Track tokens for search
+# Track tokens for LLM processing
 token_tracker.add_usage(
     input_tokens=...,
     output_tokens=...,
-    model="claude-sonnet-4-5-20250929"
+    model=settings.LLM_MODEL_SMART
 )
 ```
 
@@ -311,6 +318,8 @@ pytest tests/unit/test_research_agent.py::test_web_search -m ai -v
 - `/test-ai` - Test AI agents with live API calls
 - `/code-review` - Review codebase for bugs, logging, error handling
 - `/review-context` - Review all docs to rebuild context
+- `/session-summary` - Generate comprehensive session summary for continuity
+- `/review-docs` - Complete documentation and codebase review for accuracy
 
 
 ## Quick Reference
@@ -343,13 +352,13 @@ tracker = TokenTracker(agent_name="metadata_extraction")
 tracker.add_usage(
     input_tokens=1000,
     output_tokens=500,
-    model="claude-sonnet-4-5-20250929"
+    model=settings.LLM_MODEL_SMART  # claude-3-haiku-20240307
 )
 cost = tracker.get_total_cost()
 ```
 
 ---
 
-**Last Updated:** 2025-11-26
-**Status:** ✅ Five agents implemented and tested
-**Next Steps:** API routes and frontend components
+**Last Updated:** 2025-11-29
+**Status:** ✅ Full stack implemented - Backend API, Frontend UI, Docker containerization
+**Next Steps:** CI/CD pipeline and production deployment
