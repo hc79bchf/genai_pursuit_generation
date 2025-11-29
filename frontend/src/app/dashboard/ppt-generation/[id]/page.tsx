@@ -6,7 +6,7 @@ import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Check, Download, Loader2, ChevronDown, ChevronUp, ArrowLeft, Sparkles } from "lucide-react"
+import { Check, Download, Loader2, ChevronDown, ChevronUp, ArrowLeft, Sparkles, CircleDot } from "lucide-react"
 import { BorderBeam } from "@/components/BorderBeam"
 import { PageGuide } from "@/components/PageGuide"
 
@@ -25,6 +25,20 @@ interface QueryResult {
     summary: string;
 }
 
+// Proposal lifecycle statuses
+const PURSUIT_STATUSES = [
+    { value: 'draft', label: 'Draft', color: 'bg-gray-500' },
+    { value: 'in_review', label: 'In Review', color: 'bg-yellow-500' },
+    { value: 'ready_for_submission', label: 'Ready for Submission', color: 'bg-blue-500' },
+    { value: 'submitted', label: 'Submitted', color: 'bg-purple-500' },
+    { value: 'won', label: 'Won', color: 'bg-green-500' },
+    { value: 'lost', label: 'Lost', color: 'bg-red-500' },
+    { value: 'cancelled', label: 'Cancelled', color: 'bg-gray-400' },
+    { value: 'stale', label: 'Stale', color: 'bg-orange-500' },
+] as const;
+
+type PursuitStatus = typeof PURSUIT_STATUSES[number]['value'];
+
 export default function PPTGenerationPage() {
     const params = useParams()
     const id = params?.id as string
@@ -37,6 +51,8 @@ export default function PPTGenerationPage() {
     const [previewHtml, setPreviewHtml] = useState<string | null>(null)
     const [generatedFileId, setGeneratedFileId] = useState<string | null>(null)
     const [expandedQueries, setExpandedQueries] = useState<Record<number, boolean>>({})
+    const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
+    const [updatingStatus, setUpdatingStatus] = useState(false)
 
     useEffect(() => {
         const fetchPursuit = async () => {
@@ -157,6 +173,25 @@ export default function PPTGenerationPage() {
         }
     }
 
+    const handleStatusChange = async (newStatus: PursuitStatus) => {
+        setUpdatingStatus(true)
+        setStatusDropdownOpen(false)
+        try {
+            const updatedPursuit = await api.updatePursuit(id, { status: newStatus })
+            setPursuit(updatedPursuit)
+        } catch (error) {
+            console.error("Failed to update status", error)
+            alert("Failed to update status")
+        } finally {
+            setUpdatingStatus(false)
+        }
+    }
+
+    const getCurrentStatusInfo = () => {
+        const currentStatus = pursuit?.status || 'draft'
+        return PURSUIT_STATUSES.find(s => s.value === currentStatus) || PURSUIT_STATUSES[0]
+    }
+
     if (loading) return <div className="p-8 text-center">Loading...</div>
     if (!pursuit) return <div className="p-8 text-center">Pursuit not found</div>
 
@@ -180,12 +215,58 @@ export default function PPTGenerationPage() {
                     </div>
                     <p className="text-muted-foreground">Generate a presentation for {pursuit.entity_name}</p>
                 </div>
-                <Link href="/dashboard/ppt-generation">
-                    <Button variant="outline">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        Select Another Pursuit
-                    </Button>
-                </Link>
+                <div className="flex items-center gap-4">
+                    {/* Status Dropdown */}
+                    <div className="relative">
+                        <Button
+                            variant="outline"
+                            className="min-w-[180px] justify-between"
+                            onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                            disabled={updatingStatus}
+                        >
+                            <span className="flex items-center gap-2">
+                                {updatingStatus ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <CircleDot className={`h-3 w-3 ${getCurrentStatusInfo().color.replace('bg-', 'text-')}`} />
+                                )}
+                                {getCurrentStatusInfo().label}
+                            </span>
+                            <ChevronDown className={`h-4 w-4 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
+                        </Button>
+                        {statusDropdownOpen && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setStatusDropdownOpen(false)}
+                                />
+                                <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-card border border-white/10 rounded-lg shadow-lg overflow-hidden">
+                                    {PURSUIT_STATUSES.map((status) => (
+                                        <button
+                                            key={status.value}
+                                            className={`w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2 ${
+                                                pursuit?.status === status.value ? 'bg-white/5' : ''
+                                            }`}
+                                            onClick={() => handleStatusChange(status.value)}
+                                        >
+                                            <span className={`h-2 w-2 rounded-full ${status.color}`} />
+                                            {status.label}
+                                            {pursuit?.status === status.value && (
+                                                <Check className="h-3 w-3 ml-auto text-primary" />
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                    <Link href="/dashboard/ppt-generation">
+                        <Button variant="outline">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Select Another Pursuit
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
@@ -208,6 +289,13 @@ export default function PPTGenerationPage() {
                             <div>
                                 <div className="text-sm font-medium text-muted-foreground">Services</div>
                                 <div className="text-white">{pursuit.service_types?.join(', ') || 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm font-medium text-muted-foreground">Status</div>
+                                <div className="flex items-center gap-2 text-white">
+                                    <span className={`h-2 w-2 rounded-full ${getCurrentStatusInfo().color}`} />
+                                    {getCurrentStatusInfo().label}
+                                </div>
                             </div>
                         </CardContent>
                     </Card>

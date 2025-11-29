@@ -186,5 +186,9 @@ export const api = {
         body: JSON.stringify({ custom_research: customResearch })
     }),
     downloadFile: (pursuitId: string, fileId: string) => fetchBlob(`/pursuits/${pursuitId}/files/${fileId}/download`),
+    updatePursuit: (id: string, data: { status?: string }) => fetchApi(`/pursuits/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    }),
     refreshToken,
 };
