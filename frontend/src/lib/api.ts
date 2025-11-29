@@ -82,6 +82,100 @@ export async function fetchBlob(endpoint: string, options: FetchOptions = {}) {
     return response.blob();
 }
 
+// Token refresh configuration
+const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // Refresh every 10 minutes of activity
+const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+
+let lastActivity = Date.now();
+let refreshTimeout: NodeJS.Timeout | null = null;
+
+/**
+ * Refresh the access token and update localStorage
+ */
+export async function refreshToken(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+
+    const token = localStorage.getItem('token');
+    if (!token) return false;
+
+    try {
+        const response = await fetch(`${API_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.access_token);
+            return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Update last activity timestamp
+ */
+function updateActivity() {
+    lastActivity = Date.now();
+}
+
+/**
+ * Check if user has been active recently and refresh token if needed
+ */
+async function checkAndRefreshToken() {
+    const timeSinceActivity = Date.now() - lastActivity;
+
+    // Only refresh if user has been active in the last 5 minutes
+    if (timeSinceActivity < 5 * 60 * 1000) {
+        await refreshToken();
+    }
+
+    // Schedule next check
+    scheduleTokenRefresh();
+}
+
+/**
+ * Schedule the next token refresh check
+ */
+function scheduleTokenRefresh() {
+    if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+    }
+    refreshTimeout = setTimeout(checkAndRefreshToken, TOKEN_REFRESH_INTERVAL);
+}
+
+/**
+ * Initialize activity-based token refresh
+ * Call this once when the app mounts
+ */
+export function initTokenRefresh() {
+    if (typeof window === 'undefined') return;
+
+    // Track user activity
+    ACTIVITY_EVENTS.forEach(event => {
+        window.addEventListener(event, updateActivity, { passive: true });
+    });
+
+    // Start the refresh cycle
+    scheduleTokenRefresh();
+
+    // Return cleanup function
+    return () => {
+        ACTIVITY_EVENTS.forEach(event => {
+            window.removeEventListener(event, updateActivity);
+        });
+        if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+        }
+    };
+}
+
 export const api = {
     getPursuit: (id: string) => fetchApi(`/pursuits/${id}`),
     getPursuits: () => fetchApi('/pursuits/'),
@@ -92,4 +186,5 @@ export const api = {
         body: JSON.stringify({ custom_research: customResearch })
     }),
     downloadFile: (pursuitId: string, fileId: string) => fetchBlob(`/pursuits/${pursuitId}/files/${fileId}/download`),
+    refreshToken,
 };

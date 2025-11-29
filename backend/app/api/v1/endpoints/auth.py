@@ -44,6 +44,23 @@ async def login_access_token(
     }
 
 
+@router.post("/refresh", response_model=Token)
+async def refresh_token(
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Refresh access token for active users.
+    Returns a new token with extended expiration.
+    """
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": security.create_access_token(
+            current_user.id, expires_delta=access_token_expires
+        ),
+        "token_type": "bearer",
+    }
+
+
 @router.get("/me", response_model=UserSchema)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user)

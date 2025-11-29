@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/Sidebar"
 import { Bell, Search, User, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useUserStore } from "@/store/userStore"
+import { initTokenRefresh } from "@/lib/api"
 
 export default function DashboardLayout({
     children,
@@ -16,6 +17,12 @@ export default function DashboardLayout({
     useEffect(() => {
         fetchUser()
     }, [fetchUser])
+
+    // Initialize activity-based token refresh
+    useEffect(() => {
+        const cleanup = initTokenRefresh()
+        return cleanup
+    }, [])
 
     // Get initials from full name
     const getInitials = (name: string) => {
