@@ -9,6 +9,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { usePursuitStore } from "@/store/pursuitStore"
 import { PageGuide } from "@/components/PageGuide"
+import { BorderBeam } from "@/components/BorderBeam"
 
 interface Pursuit {
     id: string
@@ -184,10 +185,21 @@ export default function PursuitsPage() {
                     </div>
                     <p className="text-muted-foreground mt-1">Manage and track all your active pursuits</p>
                 </div>
-                <Button asChild className="bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border border-white/10">
+                <Button asChild className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group">
                     <Link href="/dashboard/pursuits/new">
-                        <Plus className="mr-2 h-4 w-4" />
-                        New Pursuit
+                        <span className="relative z-10 flex items-center">
+                            <Plus className="mr-2 h-4 w-4" />
+                            New Pursuit
+                        </span>
+                        <BorderBeam
+                            size={60}
+                            duration={3}
+                            delay={0}
+                            borderWidth={1.5}
+                            colorFrom="#ffffff"
+                            colorTo="#a78bfa"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                        />
                     </Link>
                 </Button>
             </div>

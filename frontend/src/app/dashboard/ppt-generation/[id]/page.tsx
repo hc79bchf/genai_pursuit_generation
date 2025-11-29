@@ -6,7 +6,8 @@ import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Check, Download, Loader2, ChevronDown, ChevronUp, ArrowLeft } from "lucide-react"
+import { Check, Download, Loader2, ChevronDown, ChevronUp, ArrowLeft, Sparkles } from "lucide-react"
+import { BorderBeam } from "@/components/BorderBeam"
 
 interface ResearchResultItem {
     query: string;
@@ -249,21 +250,32 @@ export default function PPTGenerationPage() {
 
                     <Button
                         size="lg"
-                        className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold py-6 text-lg shadow-lg transform transition-all hover:scale-[1.02]"
+                        className="w-full relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 text-white font-bold py-6 text-lg shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
                         onClick={handleGenerate}
                         disabled={generating}
                     >
-                        {generating ? (
-                            <>
-                                <Loader2 className="mr-3 h-6 w-6 animate-spin" />
-                                Generating Presentation...
-                            </>
-                        ) : (
-                            <>
-                                <Download className="mr-3 h-6 w-6" />
-                                Generate Presentation
-                            </>
-                        )}
+                        <span className="relative z-10 flex items-center justify-center">
+                            {generating ? (
+                                <>
+                                    <Loader2 className="mr-3 h-6 w-6 animate-spin" />
+                                    Generating Presentation...
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles className="mr-3 h-6 w-6" />
+                                    Generate Presentation
+                                </>
+                            )}
+                        </span>
+                        <BorderBeam
+                            size={100}
+                            duration={3}
+                            delay={0}
+                            borderWidth={1.5}
+                            colorFrom="#ffffff"
+                            colorTo="#a78bfa"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                        />
                     </Button>
                 </div>
 

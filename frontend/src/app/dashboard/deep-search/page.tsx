@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { fetchApi } from "@/lib/api"
 import { Loader2, AlertCircle, Search, ExternalLink, CheckCircle, Play, Clock, Zap, RotateCcw, Trash2, CheckSquare, Square } from "lucide-react"
+import { BorderBeam } from "@/components/BorderBeam"
 import Link from "next/link"
 
 import { useResearchStore } from "@/store/researchStore"
@@ -297,19 +298,30 @@ export default function DeepSearchPage() {
                         size="lg"
                         onClick={handleRunResearch}
                         disabled={isResearching || searchQueries.length === 0}
-                        className="gap-2 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90 text-white shadow-lg shadow-primary/25"
+                        className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
                     >
-                        {isResearching ? (
-                            <>
-                                <Loader2 className="h-5 w-5 animate-spin" />
-                                Researching...
-                            </>
-                        ) : (
-                            <>
-                                {pursuit.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-                                {pursuit.research_result ? "Rerun Deep Search" : "Start Deep Search"}
-                            </>
-                        )}
+                        <span className="relative z-10 flex items-center gap-2">
+                            {isResearching ? (
+                                <>
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                    Researching...
+                                </>
+                            ) : (
+                                <>
+                                    {pursuit.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                                    {pursuit.research_result ? "Rerun Deep Search" : "Start Deep Search"}
+                                </>
+                            )}
+                        </span>
+                        <BorderBeam
+                            size={80}
+                            duration={3}
+                            delay={0}
+                            borderWidth={1.5}
+                            colorFrom="#ffffff"
+                            colorTo="#a78bfa"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                        />
                     </Button>
                 </div>
             </div>
