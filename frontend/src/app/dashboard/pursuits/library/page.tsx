@@ -22,16 +22,20 @@ function TemplateCard({
     template,
     index,
     selectedPursuitId,
+    currentTemplateId,
     onSelectTemplate
 }: {
     template: any,
     index: number,
     selectedPursuitId: string | null,
+    currentTemplateId: string | null,
     onSelectTemplate: (templateId: string) => Promise<boolean>
 }) {
     const [isFlipped, setIsFlipped] = useState(false)
     const [isSelected, setIsSelected] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
+
+    const isCurrentlySelected = currentTemplateId === template.id
 
     const handleSelect = async (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -71,17 +75,33 @@ function TemplateCard({
             >
                 {/* Front Face */}
                 <div className="absolute inset-0 backface-hidden">
-                    <div className="h-full glass-card rounded-xl p-6 border border-white/10 hover:border-primary/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(124,58,237,0.15)] flex flex-col">
+                    <div className={cn(
+                        "h-full glass-card rounded-xl p-6 border transition-all duration-300 flex flex-col",
+                        isCurrentlySelected
+                            ? "border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.2)]"
+                            : "border-white/10 hover:border-primary/50 hover:shadow-[0_0_30px_rgba(124,58,237,0.15)]"
+                    )}>
                         <div className="flex items-start justify-between mb-4">
                             <div className={cn("p-3 rounded-xl bg-opacity-20", template.color.replace('bg-', 'bg-opacity-20 bg-'))}>
                                 <template.icon className={cn("h-6 w-6", template.color.replace('bg-', 'text-'))} />
                             </div>
-                            <span className="px-2.5 py-1 rounded-full bg-white/5 text-xs font-medium text-muted-foreground border border-white/5">
-                                {template.category}
-                            </span>
+                            <div className="flex items-center gap-2">
+                                {isCurrentlySelected && (
+                                    <span className="px-2.5 py-1 rounded-full bg-green-500/20 text-xs font-medium text-green-400 border border-green-500/30 flex items-center gap-1">
+                                        <Check className="h-3 w-3" />
+                                        Selected
+                                    </span>
+                                )}
+                                <span className="px-2.5 py-1 rounded-full bg-white/5 text-xs font-medium text-muted-foreground border border-white/5">
+                                    {template.category}
+                                </span>
+                            </div>
                         </div>
 
-                        <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-primary transition-colors">
+                        <h3 className={cn(
+                            "text-lg font-semibold mb-2 transition-colors",
+                            isCurrentlySelected ? "text-green-400" : "text-white group-hover:text-primary"
+                        )}>
                             {template.title}
                         </h3>
                         <p className="text-sm text-muted-foreground mb-6 flex-1 leading-relaxed">
@@ -97,11 +117,23 @@ function TemplateCard({
 
                 {/* Back Face */}
                 <div
-                    className="absolute inset-0 backface-hidden h-full glass-card rounded-xl p-6 border border-white/10 flex flex-col bg-black/80"
+                    className={cn(
+                        "absolute inset-0 backface-hidden h-full glass-card rounded-xl p-6 border flex flex-col bg-black/80",
+                        isCurrentlySelected
+                            ? "border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.2)]"
+                            : "border-white/10"
+                    )}
                     style={{ transform: "rotateY(180deg)" }}
                 >
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-base font-semibold text-white">Outline Structure</h3>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-base font-semibold text-white">Outline Structure</h3>
+                            {isCurrentlySelected && (
+                                <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-xs font-medium text-green-400 border border-green-500/30">
+                                    Current
+                                </span>
+                            )}
+                        </div>
                         <div className={cn("h-2 w-2 rounded-full", template.color)} />
                     </div>
 
@@ -119,12 +151,14 @@ function TemplateCard({
                             "w-full transition-all duration-300 shadow-lg",
                             isSelected
                                 ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
-                                : !selectedPursuitId
-                                    ? "bg-gray-500 hover:bg-gray-600 text-white shadow-gray-500/20"
-                                    : "bg-primary hover:bg-primary/90 text-white shadow-primary/20"
+                                : isCurrentlySelected
+                                    ? "bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30 shadow-green-500/10"
+                                    : !selectedPursuitId
+                                        ? "bg-gray-500 hover:bg-gray-600 text-white shadow-gray-500/20"
+                                        : "bg-primary hover:bg-primary/90 text-white shadow-primary/20"
                         )}
                         onClick={handleSelect}
-                        disabled={isSaving}
+                        disabled={isSaving || isCurrentlySelected}
                     >
                         {isSaving ? (
                             <>
@@ -134,6 +168,11 @@ function TemplateCard({
                         ) : isSelected ? (
                             <>
                                 Template Saved
+                                <Check className="ml-2 h-4 w-4" />
+                            </>
+                        ) : isCurrentlySelected ? (
+                            <>
+                                Currently Selected
                                 <Check className="ml-2 h-4 w-4" />
                             </>
                         ) : !selectedPursuitId ? (
@@ -352,6 +391,7 @@ export default function OutlineLibraryPage() {
                         template={template}
                         index={index}
                         selectedPursuitId={selectedPursuitId}
+                        currentTemplateId={selectedPursuit?.selected_template_id || null}
                         onSelectTemplate={handleSelectTemplate}
                     />
                 ))}
