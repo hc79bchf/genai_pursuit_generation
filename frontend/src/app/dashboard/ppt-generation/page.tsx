@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { FileText, ArrowRight, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PageGuide } from "@/components/PageGuide"
 
 export default function PPTGenerationListPage() {
     const [pursuits, setPursuits] = useState<any[]>([])
@@ -41,7 +42,20 @@ export default function PPTGenerationListPage() {
         <div className="p-8 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white">PPT Generation</h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-3xl font-bold tracking-tight text-white">PPT Generation</h1>
+                        <PageGuide
+                            title="PPT Generation Agent"
+                            description="The PPT Generation Agent creates professional PowerPoint presentations from your pursuit data and research findings."
+                            guidelines={[
+                                "Select an active pursuit to generate a presentation for.",
+                                "The agent uses metadata, gap analysis, and deep search results.",
+                                "Generated presentations follow MARP markdown format.",
+                                "Preview the presentation before downloading the PPTX file.",
+                                "Customize by selecting which research findings to include."
+                            ]}
+                        />
+                    </div>
                     <p className="text-muted-foreground mt-2">Select a pursuit to generate a presentation.</p>
                 </div>
             </div>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Check, Download, Loader2, ChevronDown, ChevronUp, ArrowLeft, Sparkles } from "lucide-react"
 import { BorderBeam } from "@/components/BorderBeam"
+import { PageGuide } from "@/components/PageGuide"
 
 interface ResearchResultItem {
     query: string;
@@ -163,7 +164,20 @@ export default function PPTGenerationPage() {
         <div className="p-8 h-full flex flex-col">
             <div className="mb-6 flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white">PPT Generation Agent</h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-3xl font-bold tracking-tight text-white">PPT Generation Agent</h1>
+                        <PageGuide
+                            title="Generate Presentation"
+                            description="Create a professional PowerPoint presentation using AI-powered content generation based on your pursuit data."
+                            guidelines={[
+                                "Review the pursuit metadata on the left panel.",
+                                "Select which deep search findings to include in the presentation.",
+                                "Click 'Generate Presentation' to create your slides.",
+                                "Preview the generated content in the right panel.",
+                                "Download the PPTX file when satisfied with the preview."
+                            ]}
+                        />
+                    </div>
                     <p className="text-muted-foreground">Generate a presentation for {pursuit.entity_name}</p>
                 </div>
                 <Link href="/dashboard/ppt-generation">
