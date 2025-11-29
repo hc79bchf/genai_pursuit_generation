@@ -1,16 +1,17 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { fetchApi } from "@/lib/api"
-import { Loader2, AlertCircle, Search, ExternalLink, CheckCircle, Play, Clock, Zap, RotateCcw, Trash2, CheckSquare, Square } from "lucide-react"
+import { Loader2, AlertCircle, Search, ExternalLink, CheckCircle, Play, Clock, Zap, RotateCcw, Trash2, CheckSquare, Square, ChevronDown, Briefcase, Check } from "lucide-react"
 import { BorderBeam } from "@/components/BorderBeam"
 import Link from "next/link"
 
 import { useResearchStore } from "@/store/researchStore"
 import { PageGuide } from "@/components/PageGuide"
+import { cn } from "@/lib/utils"
 
 interface ResearchResult {
     query: string
@@ -41,11 +42,58 @@ interface Pursuit {
     }
 }
 
+interface PursuitListItem {
+    id: string
+    entity_name: string
+    status: string
+    selected_template_id?: string
+}
+
 export default function DeepSearchPage() {
     const [pursuit, setPursuit] = useState<Pursuit | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [maxSourcesPerQuery, setMaxSourcesPerQuery] = useState(3)
     const [selectedResults, setSelectedResults] = useState<Set<string>>(new Set())
+
+    // Pursuit selector state
+    const [pursuits, setPursuits] = useState<PursuitListItem[]>([])
+    const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(null)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
+    const dropdownRef = useRef<HTMLDivElement>(null)
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setDropdownOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
+
+    // Load pursuits list on mount
+    useEffect(() => {
+        const loadPursuits = async () => {
+            try {
+                const data = await fetchApi("/pursuits/")
+                // Filter to only active pursuits
+                const activePursuits = data.filter((p: PursuitListItem) =>
+                    !['cancelled', 'stale', 'lost', 'won'].includes(p.status)
+                )
+                setPursuits(activePursuits)
+                // Auto-select first pursuit if available
+                if (activePursuits.length > 0) {
+                    setSelectedPursuitId(activePursuits[0].id)
+                }
+            } catch (error) {
+                console.error("Failed to load pursuits:", error)
+            }
+        }
+        loadPursuits()
+    }, [])
+
+    const selectedPursuitListItem = pursuits.find(p => p.id === selectedPursuitId)
 
     const toggleSelection = (url: string) => {
         const newSelected = new Set(selectedResults)
@@ -71,32 +119,32 @@ export default function DeepSearchPage() {
         incrementElapsedTime
     } = useResearchStore()
 
+    // Load pursuit details when selectedPursuitId changes
     useEffect(() => {
-        const loadData = async () => {
-            try {
-                const pursuits = await fetchApi("/pursuits/")
-                if (pursuits && pursuits.length > 0) {
-                    const sorted = pursuits.sort((a: any, b: any) =>
-                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
-                    const latestId = sorted[0].id
-                    const fullPursuit = await fetchApi(`/pursuits/${latestId}`)
-                    setPursuit(fullPursuit)
+        const loadPursuitDetails = async () => {
+            if (!selectedPursuitId) {
+                setIsLoading(false)
+                return
+            }
 
-                    // If research is ongoing for this pursuit, continue polling
-                    if (isResearching && pursuitId === latestId && !fullPursuit.research_result) {
-                        startPolling(latestId, pursuit?.gap_analysis_result?.search_queries?.length || 0)
-                    }
+            setIsLoading(true)
+            try {
+                const fullPursuit = await fetchApi(`/pursuits/${selectedPursuitId}`)
+                setPursuit(fullPursuit)
+
+                // If research is ongoing for this pursuit, continue polling
+                if (isResearching && pursuitId === selectedPursuitId && !fullPursuit.research_result) {
+                    startPolling(selectedPursuitId, fullPursuit?.gap_analysis_result?.search_queries?.length || 0)
                 }
             } catch (error) {
-                console.error("Failed to load data:", error)
+                console.error("Failed to load pursuit details:", error)
             } finally {
                 setIsLoading(false)
             }
         }
 
-        loadData()
-    }, [])
+        loadPursuitDetails()
+    }, [selectedPursuitId])
 
     // Timer effect for elapsed time
     useEffect(() => {
@@ -244,7 +292,7 @@ export default function DeepSearchPage() {
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-10">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2">
                         <h1 className="text-2xl font-bold tracking-tight text-white">Deep Search</h1>
@@ -252,6 +300,7 @@ export default function DeepSearchPage() {
                             title="Deep Search"
                             description="Deep Search uses AI agents to perform autonomous web research, finding evidence and information to address identified gaps."
                             guidelines={[
+                                "First, select a pursuit from the dropdown to work on.",
                                 "Review the search queries generated from the Gap Assessment.",
                                 "Adjust the 'Sources per query' setting to control research depth.",
                                 "Click 'Start Deep Search' to initiate the autonomous research agent.",
@@ -264,66 +313,137 @@ export default function DeepSearchPage() {
                         AI-powered web research to fill gaps in your proposal
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
-                    {/* Sources per query selector */}
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground whitespace-nowrap">
-                            Sources per query:
-                        </span>
-                        <select
-                            value={maxSourcesPerQuery}
-                            onChange={(e) => setMaxSourcesPerQuery(Number(e.target.value))}
-                            disabled={isResearching}
-                            className="h-9 rounded-md border border-white/10 bg-white/5 px-3 py-1 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {[1, 2, 3, 4, 5].map((num) => (
-                                <option key={num} value={num} className="bg-slate-900 text-white">
-                                    {num}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    {pursuit.research_result && !isResearching && (
-                        <Button
-                            size="lg"
-                            variant="outline"
-                            onClick={handleClearResults}
-                            className="gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                            Clear Results
-                        </Button>
+
+                {/* Pursuit Selector */}
+                <div className="relative" ref={dropdownRef}>
+                    <button
+                        onClick={() => setDropdownOpen(!dropdownOpen)}
+                        className={cn(
+                            "flex items-center gap-3 px-4 py-3 rounded-xl border transition-all min-w-[280px]",
+                            selectedPursuitId
+                                ? "bg-primary/10 border-primary/30 hover:border-primary/50"
+                                : "bg-white/5 border-white/10 hover:border-white/20"
+                        )}
+                    >
+                        <Briefcase className={cn(
+                            "h-5 w-5",
+                            selectedPursuitId ? "text-primary" : "text-muted-foreground"
+                        )} />
+                        <div className="flex-1 text-left">
+                            <div className="text-xs text-muted-foreground">Working on</div>
+                            <div className={cn(
+                                "text-sm font-medium truncate",
+                                selectedPursuitId ? "text-white" : "text-muted-foreground"
+                            )}>
+                                {selectedPursuitListItem?.entity_name || "Select a pursuit"}
+                            </div>
+                        </div>
+                        <ChevronDown className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            dropdownOpen && "rotate-180"
+                        )} />
+                    </button>
+
+                    {dropdownOpen && (
+                        <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-white/10 rounded-xl shadow-xl z-50 py-2 max-h-80 overflow-y-auto">
+                            <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-white/10 mb-1">
+                                Active Pursuits
+                            </div>
+                            {pursuits.length === 0 ? (
+                                <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                                    No active pursuits found
+                                </div>
+                            ) : (
+                                pursuits.map((p) => (
+                                    <button
+                                        key={p.id}
+                                        onClick={() => {
+                                            setSelectedPursuitId(p.id)
+                                            setDropdownOpen(false)
+                                        }}
+                                        className={cn(
+                                            "w-full px-3 py-3 text-left hover:bg-white/5 flex items-center gap-3 transition-colors",
+                                            selectedPursuitId === p.id && "bg-primary/10"
+                                        )}
+                                    >
+                                        <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm text-white truncate">{p.entity_name}</div>
+                                            <div className="text-xs text-muted-foreground truncate">
+                                                {p.status?.replace('_', ' ') || 'Draft'}
+                                            </div>
+                                        </div>
+                                        {selectedPursuitId === p.id && (
+                                            <Check className="h-4 w-4 text-primary shrink-0" />
+                                        )}
+                                    </button>
+                                ))
+                            )}
+                        </div>
                     )}
+                </div>
+            </div>
+
+            {/* Controls Row */}
+            <div className="flex items-center justify-end gap-3">
+                {/* Sources per query selector */}
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        Sources per query:
+                    </span>
+                    <select
+                        value={maxSourcesPerQuery}
+                        onChange={(e) => setMaxSourcesPerQuery(Number(e.target.value))}
+                        disabled={isResearching}
+                        className="h-9 rounded-md border border-white/10 bg-white/5 px-3 py-1 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {[1, 2, 3, 4, 5].map((num) => (
+                            <option key={num} value={num} className="bg-slate-900 text-white">
+                                {num}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {pursuit.research_result && !isResearching && (
                     <Button
                         size="lg"
-                        onClick={handleRunResearch}
-                        disabled={isResearching || searchQueries.length === 0}
-                        className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
+                        variant="outline"
+                        onClick={handleClearResults}
+                        className="gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50"
                     >
-                        <span className="relative z-10 flex items-center gap-2">
-                            {isResearching ? (
-                                <>
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                    Researching...
-                                </>
-                            ) : (
-                                <>
-                                    {pursuit.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-                                    {pursuit.research_result ? "Rerun Deep Search" : "Start Deep Search"}
-                                </>
-                            )}
-                        </span>
-                        <BorderBeam
-                            size={80}
-                            duration={3}
-                            delay={0}
-                            borderWidth={1.5}
-                            colorFrom="#ffffff"
-                            colorTo="#a78bfa"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                        />
+                        <Trash2 className="h-4 w-4" />
+                        Clear Results
                     </Button>
-                </div>
+                )}
+                <Button
+                    size="lg"
+                    onClick={handleRunResearch}
+                    disabled={isResearching || searchQueries.length === 0}
+                    className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
+                >
+                    <span className="relative z-10 flex items-center gap-2">
+                        {isResearching ? (
+                            <>
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                Researching...
+                            </>
+                        ) : (
+                            <>
+                                {pursuit.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                                {pursuit.research_result ? "Rerun Deep Search" : "Start Deep Search"}
+                            </>
+                        )}
+                    </span>
+                    <BorderBeam
+                        size={80}
+                        duration={3}
+                        delay={0}
+                        borderWidth={1.5}
+                        colorFrom="#ffffff"
+                        colorTo="#a78bfa"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                    />
+                </Button>
             </div>
 
             {/* Progress Tracker */}
