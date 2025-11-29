@@ -1,27 +1,55 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, Filter, FileText, ArrowRight, Building2, Globe, Shield, RotateCw, Check } from "lucide-react"
+import { Search, Filter, FileText, ArrowRight, Building2, Globe, Shield, RotateCw, Check, ChevronDown, Briefcase } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { fetchApi } from "@/lib/api"
 
 import { templates, categories } from "@/lib/data"
 import { PageGuide } from "@/components/PageGuide"
 
-function TemplateCard({ template, index }: { template: any, index: number }) {
+interface Pursuit {
+    id: string
+    entity_name: string
+    status: string
+    selected_template_id?: string
+}
+
+function TemplateCard({
+    template,
+    index,
+    selectedPursuitId,
+    onSelectTemplate
+}: {
+    template: any,
+    index: number,
+    selectedPursuitId: string | null,
+    onSelectTemplate: (templateId: string) => Promise<boolean>
+}) {
     const [isFlipped, setIsFlipped] = useState(false)
     const [isSelected, setIsSelected] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
 
-    const handleSelect = (e: React.MouseEvent) => {
+    const handleSelect = async (e: React.MouseEvent) => {
         e.stopPropagation()
-        setIsSelected(true)
-        // Store selected template
-        localStorage.setItem("selectedTemplateId", template.id)
-        // Reset after 2 seconds
-        setTimeout(() => setIsSelected(false), 2000)
-        console.log("Selected template:", template.id)
+
+        if (!selectedPursuitId) {
+            alert("Please select a pursuit first")
+            return
+        }
+
+        setIsSaving(true)
+        const success = await onSelectTemplate(template.id)
+        setIsSaving(false)
+
+        if (success) {
+            setIsSelected(true)
+            // Reset after 2 seconds
+            setTimeout(() => setIsSelected(false), 2000)
+        }
     }
 
     return (
@@ -91,14 +119,26 @@ function TemplateCard({ template, index }: { template: any, index: number }) {
                             "w-full transition-all duration-300 shadow-lg",
                             isSelected
                                 ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
-                                : "bg-primary hover:bg-primary/90 text-white shadow-primary/20"
+                                : !selectedPursuitId
+                                    ? "bg-gray-500 hover:bg-gray-600 text-white shadow-gray-500/20"
+                                    : "bg-primary hover:bg-primary/90 text-white shadow-primary/20"
                         )}
                         onClick={handleSelect}
+                        disabled={isSaving}
                     >
-                        {isSelected ? (
+                        {isSaving ? (
                             <>
-                                Template Selected
+                                Saving...
+                                <RotateCw className="ml-2 h-4 w-4 animate-spin" />
+                            </>
+                        ) : isSelected ? (
+                            <>
+                                Template Saved
                                 <Check className="ml-2 h-4 w-4" />
+                            </>
+                        ) : !selectedPursuitId ? (
+                            <>
+                                Select a Pursuit First
                             </>
                         ) : (
                             <>
@@ -116,6 +156,62 @@ function TemplateCard({ template, index }: { template: any, index: number }) {
 export default function OutlineLibraryPage() {
     const [searchQuery, setSearchQuery] = useState("")
     const [selectedCategory, setSelectedCategory] = useState("All")
+    const [pursuits, setPursuits] = useState<Pursuit[]>([])
+    const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(null)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
+    const [isLoading, setIsLoading] = useState(true)
+    const dropdownRef = useRef<HTMLDivElement>(null)
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setDropdownOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
+
+    // Load pursuits on mount
+    useEffect(() => {
+        async function loadPursuits() {
+            try {
+                const data = await fetchApi("/pursuits/")
+                // Filter to only active pursuits
+                const activePursuits = data.filter((p: Pursuit) =>
+                    !['cancelled', 'stale', 'lost', 'won'].includes(p.status)
+                )
+                setPursuits(activePursuits)
+            } catch (error) {
+                console.error("Failed to load pursuits", error)
+            } finally {
+                setIsLoading(false)
+            }
+        }
+        loadPursuits()
+    }, [])
+
+    const selectedPursuit = pursuits.find(p => p.id === selectedPursuitId)
+
+    const handleSelectTemplate = async (templateId: string): Promise<boolean> => {
+        if (!selectedPursuitId) return false
+
+        try {
+            await fetchApi(`/pursuits/${selectedPursuitId}`, {
+                method: "PUT",
+                body: JSON.stringify({ selected_template_id: templateId })
+            })
+            // Update local state
+            setPursuits(prev => prev.map(p =>
+                p.id === selectedPursuitId ? { ...p, selected_template_id: templateId } : p
+            ))
+            return true
+        } catch (error) {
+            console.error("Failed to save template selection", error)
+            return false
+        }
+    }
 
     const filteredTemplates = templates.filter(template => {
         const matchesSearch = template.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -127,21 +223,96 @@ export default function OutlineLibraryPage() {
     return (
         <div className="space-y-8 h-[calc(100vh-100px)] flex flex-col">
             {/* Header */}
-            <div>
-                <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-white">Outline Library</h1>
-                    <PageGuide
-                        title="Outline Library"
-                        description="Browse and select from a collection of pre-built proposal outlines to jumpstart your pursuit response."
-                        guidelines={[
-                            "Use the search bar to find specific templates.",
-                            "Filter templates by category using the tabs.",
-                            "Click on a card to flip it and view the detailed outline structure.",
-                            "Select a template to use it for your new pursuit."
-                        ]}
-                    />
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-2xl font-bold tracking-tight text-white">Outline Library</h1>
+                        <PageGuide
+                            title="Outline Library"
+                            description="Browse and select from a collection of pre-built proposal outlines to jumpstart your pursuit response."
+                            guidelines={[
+                                "First, select a pursuit from the dropdown to assign templates to.",
+                                "Use the search bar to find specific templates.",
+                                "Filter templates by category using the tabs.",
+                                "Click on a card to flip it and view the detailed outline structure.",
+                                "Select a template to save it for your chosen pursuit."
+                            ]}
+                        />
+                    </div>
+                    <p className="text-muted-foreground mt-1">Browse and select prebuilt RFP outlines to jumpstart your proposal.</p>
                 </div>
-                <p className="text-muted-foreground mt-1">Browse and select prebuilt RFP outlines to jumpstart your proposal.</p>
+
+                {/* Pursuit Selector */}
+                <div className="relative" ref={dropdownRef}>
+                    <button
+                        onClick={() => setDropdownOpen(!dropdownOpen)}
+                        className={cn(
+                            "flex items-center gap-3 px-4 py-3 rounded-xl border transition-all min-w-[280px]",
+                            selectedPursuitId
+                                ? "bg-primary/10 border-primary/30 hover:border-primary/50"
+                                : "bg-white/5 border-white/10 hover:border-white/20"
+                        )}
+                    >
+                        <Briefcase className={cn(
+                            "h-5 w-5",
+                            selectedPursuitId ? "text-primary" : "text-muted-foreground"
+                        )} />
+                        <div className="flex-1 text-left">
+                            <div className="text-xs text-muted-foreground">Working on</div>
+                            <div className={cn(
+                                "text-sm font-medium truncate",
+                                selectedPursuitId ? "text-white" : "text-muted-foreground"
+                            )}>
+                                {isLoading ? "Loading..." : selectedPursuit?.entity_name || "Select a pursuit"}
+                            </div>
+                        </div>
+                        <ChevronDown className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            dropdownOpen && "rotate-180"
+                        )} />
+                    </button>
+
+                    {dropdownOpen && (
+                        <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-white/10 rounded-xl shadow-xl z-50 py-2 max-h-80 overflow-y-auto">
+                            <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-white/10 mb-1">
+                                Active Pursuits
+                            </div>
+                            {pursuits.length === 0 ? (
+                                <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                                    No active pursuits found
+                                </div>
+                            ) : (
+                                pursuits.map((pursuit) => {
+                                    const currentTemplate = templates.find(t => t.id === pursuit.selected_template_id)
+                                    return (
+                                        <button
+                                            key={pursuit.id}
+                                            onClick={() => {
+                                                setSelectedPursuitId(pursuit.id)
+                                                setDropdownOpen(false)
+                                            }}
+                                            className={cn(
+                                                "w-full px-3 py-3 text-left hover:bg-white/5 flex items-center gap-3 transition-colors",
+                                                selectedPursuitId === pursuit.id && "bg-primary/10"
+                                            )}
+                                        >
+                                            <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm text-white truncate">{pursuit.entity_name}</div>
+                                                <div className="text-xs text-muted-foreground truncate">
+                                                    {currentTemplate ? `Template: ${currentTemplate.title}` : "No template selected"}
+                                                </div>
+                                            </div>
+                                            {selectedPursuitId === pursuit.id && (
+                                                <Check className="h-4 w-4 text-primary shrink-0" />
+                                            )}
+                                        </button>
+                                    )
+                                })
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Search and Filter */}
@@ -176,7 +347,13 @@ export default function OutlineLibraryPage() {
             {/* Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-8 pr-2">
                 {filteredTemplates.map((template, index) => (
-                    <TemplateCard key={template.id} template={template} index={index} />
+                    <TemplateCard
+                        key={template.id}
+                        template={template}
+                        index={index}
+                        selectedPursuitId={selectedPursuitId}
+                        onSelectTemplate={handleSelectTemplate}
+                    />
                 ))}
             </div>
         </div>

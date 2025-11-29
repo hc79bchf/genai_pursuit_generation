@@ -43,6 +43,7 @@ class Pursuit(Base):
     proposal_outline_framework = Column(Text)
     gap_analysis_result = Column(JSONB)
     research_result = Column(JSONB)
+    selected_template_id = Column(String(100), nullable=True)  # ID of selected outline template
 
     # Progress
     current_stage = Column(String(50))

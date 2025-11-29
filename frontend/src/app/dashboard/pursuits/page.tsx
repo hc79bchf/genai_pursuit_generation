@@ -19,6 +19,7 @@ interface Pursuit {
     created_at: string
     progress?: number
     is_deleted?: boolean
+    selected_template_id?: string
 }
 
 interface PursuitCardProps {
@@ -39,8 +40,8 @@ const PursuitCard = memo(function PursuitCard({ pursuit, updatingId, onStatusCha
     }
 
     return (
-        <div className="glass-card rounded-xl p-6 flex items-center justify-between group cursor-pointer border border-white/5 hover:border-primary/50 transition-all">
-            <Link href={`/dashboard/pursuits/${pursuit.id}`} className="flex items-center space-x-6 flex-1">
+        <div className="glass-card rounded-xl p-6 flex items-center justify-between group border border-white/5 hover:border-primary/50 transition-all">
+            <Link href={`/dashboard/pursuits/${pursuit.id}`} className="flex items-center space-x-6 flex-1 cursor-pointer">
                 <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary/20 to-blue-500/20 flex items-center justify-center text-primary font-bold text-lg group-hover:scale-110 transition-transform">
                     <FileText className="h-6 w-6" />
                 </div>

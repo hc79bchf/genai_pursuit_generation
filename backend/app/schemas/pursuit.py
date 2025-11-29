@@ -26,6 +26,7 @@ class PursuitBase(BaseModel):
     proposal_outline_framework: Optional[str] = None
     gap_analysis_result: Optional[Dict[str, Any]] = None
     research_result: Optional[Dict[str, Any]] = None
+    selected_template_id: Optional[str] = None
     current_stage: Optional[str] = None
     progress_percentage: Optional[int] = 0
 
