@@ -34,6 +34,6 @@ output_refactor.txt
 
 # Data
 Data/
-*.docx
 backend/uploads/
-backend/chroma_data/
+backend/chroma_data/*
+*.docx

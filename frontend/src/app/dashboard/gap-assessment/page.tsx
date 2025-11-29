@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +13,35 @@ import Link from "next/link"
 import { PageGuide } from "@/components/PageGuide"
 import { BorderBeam } from "@/components/BorderBeam"
 import { cn } from "@/lib/utils"
+
+// Helper to manage analyzing state in sessionStorage
+const ANALYZING_KEY = "gap_analysis_in_progress"
+const SELECTED_PURSUIT_KEY = "gap_assessment_selected_pursuit"
+
+const getAnalyzingPursuitId = (): string | null => {
+    if (typeof window === 'undefined') return null
+    return sessionStorage.getItem(ANALYZING_KEY)
+}
+const setAnalyzingPursuitId = (id: string | null) => {
+    if (typeof window === 'undefined') return
+    if (id) {
+        sessionStorage.setItem(ANALYZING_KEY, id)
+    } else {
+        sessionStorage.removeItem(ANALYZING_KEY)
+    }
+}
+const getSelectedPursuitId = (): string | null => {
+    if (typeof window === 'undefined') return null
+    return sessionStorage.getItem(SELECTED_PURSUIT_KEY)
+}
+const saveSelectedPursuitId = (id: string | null) => {
+    if (typeof window === 'undefined') return
+    if (id) {
+        sessionStorage.setItem(SELECTED_PURSUIT_KEY, id)
+    } else {
+        sessionStorage.removeItem(SELECTED_PURSUIT_KEY)
+    }
+}
 
 interface PursuitListItem {
     id: string
@@ -48,19 +77,26 @@ interface Pursuit {
 }
 
 export default function GapAssessmentPage() {
+    // Check for in-progress analysis and saved selection on initial render
+    const initialAnalyzingId = typeof window !== 'undefined' ? sessionStorage.getItem(ANALYZING_KEY) : null
+    const initialSelectedId = typeof window !== 'undefined' ? (initialAnalyzingId || sessionStorage.getItem(SELECTED_PURSUIT_KEY)) : null
+
     const [pursuit, setPursuit] = useState<Pursuit | null>(null)
     const [pursuits, setPursuits] = useState<PursuitListItem[]>([])
-    const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(null)
+    const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(initialSelectedId)
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const [selectedTemplate, setSelectedTemplate] = useState<any>(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const [isAnalyzing, setIsAnalyzing] = useState(false)
+    const [isLoadingList, setIsLoadingList] = useState(true)
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false)
+    const [isAnalyzing, setIsAnalyzing] = useState(!!initialAnalyzingId)
     const [isEditing, setIsEditing] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [editedGaps, setEditedGaps] = useState<string[]>([])
     const [editedQueries, setEditedQueries] = useState<string[]>([])
     const [editedReasoning, setEditedReasoning] = useState("")
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+    const hasRestoredAnalysis = useRef(false)
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -73,6 +109,62 @@ export default function GapAssessmentPage() {
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [])
 
+    // Cleanup polling on unmount
+    useEffect(() => {
+        return () => {
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current)
+            }
+        }
+    }, [])
+
+    // Start polling for a pursuit that's being analyzed
+    const startPolling = useCallback((pursuitId: string) => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+        }
+
+        pollIntervalRef.current = setInterval(async () => {
+            try {
+                const updatedPursuit = await fetchApi(`/pursuits/${pursuitId}`)
+                if (updatedPursuit.gap_analysis_result) {
+                    if (pollIntervalRef.current) {
+                        clearInterval(pollIntervalRef.current)
+                        pollIntervalRef.current = null
+                    }
+                    setPursuit(updatedPursuit)
+                    setIsAnalyzing(false)
+                    setAnalyzingPursuitId(null)
+                }
+            } catch (error) {
+                console.error("Polling failed:", error)
+            }
+        }, 2000)
+
+        // Timeout after 60 seconds
+        setTimeout(() => {
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current)
+                pollIntervalRef.current = null
+            }
+            setIsAnalyzing(false)
+            setAnalyzingPursuitId(null)
+        }, 60000)
+    }, [])
+
+    // Restore polling immediately if analysis was in progress
+    useEffect(() => {
+        if (initialAnalyzingId && !hasRestoredAnalysis.current) {
+            hasRestoredAnalysis.current = true
+            startPolling(initialAnalyzingId)
+        }
+    }, [initialAnalyzingId, startPolling])
+
+    // Save selected pursuit ID whenever it changes
+    useEffect(() => {
+        saveSelectedPursuitId(selectedPursuitId)
+    }, [selectedPursuitId])
+
     // Load pursuits list on mount
     useEffect(() => {
         const loadPursuits = async () => {
@@ -84,18 +176,18 @@ export default function GapAssessmentPage() {
                 )
                 setPursuits(activePursuits)
 
-                // Auto-select the first pursuit if available
-                if (activePursuits.length > 0) {
+                // Only auto-select if we don't already have a selection (from initialAnalyzingId)
+                if (!selectedPursuitId && activePursuits.length > 0) {
                     setSelectedPursuitId(activePursuits[0].id)
                 }
             } catch (error) {
                 console.error("Failed to load pursuits:", error)
             } finally {
-                setIsLoading(false)
+                setIsLoadingList(false)
             }
         }
         loadPursuits()
-    }, [])
+    }, []) // Remove startPolling dependency since we handle it separately
 
     // Load full pursuit details when selection changes
     useEffect(() => {
@@ -106,6 +198,7 @@ export default function GapAssessmentPage() {
                 return
             }
 
+            setIsLoadingDetails(true)
             try {
                 const fullPursuit = await fetchApi(`/pursuits/${selectedPursuitId}`)
                 setPursuit(fullPursuit)
@@ -117,8 +210,21 @@ export default function GapAssessmentPage() {
                 } else {
                     setSelectedTemplate(null)
                 }
+
+                // If this pursuit was being analyzed but now has results, clear the state
+                const analyzingId = getAnalyzingPursuitId()
+                if (analyzingId === selectedPursuitId && fullPursuit.gap_analysis_result) {
+                    setIsAnalyzing(false)
+                    setAnalyzingPursuitId(null)
+                    if (pollIntervalRef.current) {
+                        clearInterval(pollIntervalRef.current)
+                        pollIntervalRef.current = null
+                    }
+                }
             } catch (error) {
                 console.error("Failed to load pursuit details:", error)
+            } finally {
+                setIsLoadingDetails(false)
             }
         }
         loadPursuitDetails()
@@ -130,6 +236,8 @@ export default function GapAssessmentPage() {
         if (!pursuit || !selectedTemplate) return
 
         setIsAnalyzing(true)
+        setAnalyzingPursuitId(pursuit.id)
+
         try {
             // Trigger analysis
             await fetchApi(`/pursuits/${pursuit.id}/gap-analysis`, {
@@ -137,25 +245,13 @@ export default function GapAssessmentPage() {
                 body: JSON.stringify(selectedTemplate)
             })
 
-            // Poll for results
-            const pollInterval = setInterval(async () => {
-                const updatedPursuit = await fetchApi(`/pursuits/${pursuit.id}`)
-                if (updatedPursuit.gap_analysis_result) {
-                    clearInterval(pollInterval)
-                    setPursuit(updatedPursuit)
-                    setIsAnalyzing(false)
-                }
-            }, 2000)
-
-            // Timeout after 60 seconds
-            setTimeout(() => {
-                clearInterval(pollInterval)
-                setIsAnalyzing(false)
-            }, 60000)
+            // Start polling for results
+            startPolling(pursuit.id)
 
         } catch (error) {
             console.error("Analysis failed:", error)
             setIsAnalyzing(false)
+            setAnalyzingPursuitId(null)
             alert("Failed to start analysis")
         }
     }
@@ -229,7 +325,8 @@ export default function GapAssessmentPage() {
         setEditedQueries(editedQueries.filter((_, i) => i !== index))
     }
 
-    if (isLoading) {
+    // Only show full page loading for initial pursuits list load (not when we have a saved selection)
+    if (isLoadingList && pursuits.length === 0 && !selectedPursuitId) {
         return (
             <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -281,7 +378,7 @@ export default function GapAssessmentPage() {
                                 "text-sm font-medium truncate",
                                 selectedPursuitId ? "text-white" : "text-muted-foreground"
                             )}>
-                                {isLoading ? "Loading..." : selectedPursuitListItem?.entity_name || "Select a pursuit"}
+                                {isLoadingList ? "Loading..." : selectedPursuitListItem?.entity_name || "Select a pursuit"}
                             </div>
                         </div>
                         <ChevronDown className={cn(
@@ -345,7 +442,11 @@ export default function GapAssessmentPage() {
                         )}
                     </div>
 
-                    {pursuit ? (
+                    {isLoadingDetails ? (
+                        <div className="glass-card rounded-xl p-6 border border-white/10 flex items-center justify-center min-h-[200px]">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        </div>
+                    ) : pursuit ? (
                         <div className="glass-card rounded-xl p-6 border border-white/10">
                             <MetadataDisplay data={pursuit} />
                         </div>
