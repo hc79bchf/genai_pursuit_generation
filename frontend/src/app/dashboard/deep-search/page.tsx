@@ -252,46 +252,54 @@ export default function DeepSearchPage() {
         }
     }, [])
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
-    }
-
-    if (!pursuit) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                <AlertCircle className="h-16 w-16 text-muted-foreground mb-4" />
-                <h2 className="text-xl font-semibold text-white mb-2">No Pursuit Found</h2>
-                <p className="text-muted-foreground mb-6">Create a pursuit to start deep search</p>
-                <Button asChild>
-                    <Link href="/dashboard/pursuits/new">Create New Pursuit</Link>
-                </Button>
-            </div>
-        )
-    }
-
-    if (!pursuit.gap_analysis_result) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                <AlertCircle className="h-16 w-16 text-muted-foreground mb-4" />
-                <h2 className="text-xl font-semibold text-white mb-2">Gap Analysis Required</h2>
-                <p className="text-muted-foreground mb-6">Complete gap analysis before running deep search</p>
-                <Button asChild>
-                    <Link href="/dashboard/gap-assessment">Go to Gap Assessment</Link>
-                </Button>
-            </div>
-        )
-    }
-
-    const searchQueries = pursuit.gap_analysis_result.search_queries || []
+    const searchQueries = pursuit?.gap_analysis_result?.search_queries || []
     const totalQueries = searchQueries.length
+
+    // Helper to render the content area based on state
+    const renderContent = () => {
+        if (isLoading) {
+            return (
+                <div className="flex items-center justify-center py-20">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+            )
+        }
+
+        if (!pursuit) {
+            return (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <AlertCircle className="h-16 w-16 text-muted-foreground mb-4" />
+                    <h2 className="text-xl font-semibold text-white mb-2">No Pursuit Selected</h2>
+                    <p className="text-muted-foreground mb-6">Select a pursuit from the dropdown above or create a new one</p>
+                    <Button asChild>
+                        <Link href="/dashboard/pursuits/new">Create New Pursuit</Link>
+                    </Button>
+                </div>
+            )
+        }
+
+        if (!pursuit.gap_analysis_result) {
+            return (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <AlertCircle className="h-16 w-16 text-muted-foreground mb-4" />
+                    <h2 className="text-xl font-semibold text-white mb-2">Gap Analysis Required</h2>
+                    <p className="text-muted-foreground mb-6">
+                        Complete gap analysis for <span className="text-primary font-medium">{pursuit.entity_name}</span> before running deep search
+                    </p>
+                    <Button asChild>
+                        <Link href="/dashboard/gap-assessment">Go to Gap Assessment</Link>
+                    </Button>
+                </div>
+            )
+        }
+
+        // Has gap analysis - show full content
+        return null
+    }
 
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-10">
-            {/* Header */}
+            {/* Header - Always visible */}
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2">
@@ -314,7 +322,7 @@ export default function DeepSearchPage() {
                     </p>
                 </div>
 
-                {/* Pursuit Selector */}
+                {/* Pursuit Selector - Always visible */}
                 <div className="relative" ref={dropdownRef}>
                     <button
                         onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -384,6 +392,10 @@ export default function DeepSearchPage() {
                 </div>
             </div>
 
+            {/* Content Area - conditionally rendered */}
+            {renderContent() || (
+                <>
+
             {/* Controls Row */}
             <div className="flex items-center justify-end gap-3">
                 {/* Sources per query selector */}
@@ -404,7 +416,7 @@ export default function DeepSearchPage() {
                         ))}
                     </select>
                 </div>
-                {pursuit.research_result && !(isResearching && pursuitId === selectedPursuitId) && (
+                {pursuit?.research_result && !(isResearching && pursuitId === selectedPursuitId) && (
                     <Button
                         size="lg"
                         variant="outline"
@@ -429,8 +441,8 @@ export default function DeepSearchPage() {
                             </>
                         ) : (
                             <>
-                                {pursuit.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-                                {pursuit.research_result ? "Rerun Deep Search" : "Start Deep Search"}
+                                {pursuit?.research_result ? <RotateCcw className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                                {pursuit?.research_result ? "Rerun Deep Search" : "Start Deep Search"}
                             </>
                         )}
                     </span>
@@ -581,7 +593,7 @@ export default function DeepSearchPage() {
             </Card>
 
             {/* Research Results */}
-            {pursuit.research_result && (
+            {pursuit?.research_result && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -595,13 +607,13 @@ export default function DeepSearchPage() {
                                 Executive Summary
                             </h2>
                             <p className="text-white/90 leading-relaxed">
-                                {pursuit.research_result.overall_summary}
+                                {pursuit?.research_result?.overall_summary}
                             </p>
                         </CardContent>
                     </Card>
 
                     {/* Individual Query Results */}
-                    {pursuit.research_result.research_results.map((research: ResearchResult, idx: number) => (
+                    {pursuit?.research_result?.research_results?.map((research: ResearchResult, idx: number) => (
                         <Card key={idx} className="bg-white/5 border-white/10">
                             <CardContent className="p-6">
                                 <div className="mb-4">
@@ -675,6 +687,8 @@ export default function DeepSearchPage() {
                         </Card>
                     ))}
                 </motion.div>
+            )}
+            </>
             )}
         </div>
     )
