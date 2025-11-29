@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, Filter, FileText, ArrowRight, Building2, Globe, Shield, RotateCw, Check, ChevronDown, Briefcase } from "lucide-react"
+import { Search, Filter, FileText, ArrowRight, Building2, Globe, Shield, RotateCw, Check, ChevronDown, Briefcase, AlertCircle, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -23,13 +23,15 @@ function TemplateCard({
     index,
     selectedPursuitId,
     currentTemplateId,
-    onSelectTemplate
+    onSelectTemplate,
+    onShowWarning
 }: {
     template: any,
     index: number,
     selectedPursuitId: string | null,
     currentTemplateId: string | null,
-    onSelectTemplate: (templateId: string) => Promise<boolean>
+    onSelectTemplate: (templateId: string) => Promise<boolean>,
+    onShowWarning: () => void
 }) {
     const [isFlipped, setIsFlipped] = useState(false)
     const [isSelected, setIsSelected] = useState(false)
@@ -41,7 +43,7 @@ function TemplateCard({
         e.stopPropagation()
 
         if (!selectedPursuitId) {
-            alert("Please select a pursuit first")
+            onShowWarning()
             return
         }
 
@@ -199,7 +201,16 @@ export default function OutlineLibraryPage() {
     const [selectedPursuitId, setSelectedPursuitId] = useState<string | null>(null)
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(true)
+    const [showWarning, setShowWarning] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
+
+    // Auto-hide warning after 4 seconds
+    useEffect(() => {
+        if (showWarning) {
+            const timer = setTimeout(() => setShowWarning(false), 4000)
+            return () => clearTimeout(timer)
+        }
+    }, [showWarning])
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -261,6 +272,35 @@ export default function OutlineLibraryPage() {
 
     return (
         <div className="space-y-8 h-[calc(100vh-100px)] flex flex-col">
+            {/* Toast Notification */}
+            <AnimatePresence>
+                {showWarning && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[100]"
+                    >
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 shadow-lg shadow-amber-500/10 backdrop-blur-sm">
+                            <div className="flex items-center justify-center h-10 w-10 rounded-full bg-amber-500/20">
+                                <AlertCircle className="h-5 w-5 text-amber-400" />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-semibold text-amber-300">Select a Pursuit First</span>
+                                <span className="text-xs text-amber-400/80">Choose a pursuit from the dropdown to assign a template</span>
+                            </div>
+                            <button
+                                onClick={() => setShowWarning(false)}
+                                className="ml-4 p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                                <X className="h-4 w-4 text-amber-400/60 hover:text-amber-400" />
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div>
@@ -393,6 +433,7 @@ export default function OutlineLibraryPage() {
                         selectedPursuitId={selectedPursuitId}
                         currentTemplateId={selectedPursuit?.selected_template_id || null}
                         onSelectTemplate={handleSelectTemplate}
+                        onShowWarning={() => setShowWarning(true)}
                     />
                 ))}
             </div>
