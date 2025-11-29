@@ -1,14 +1,32 @@
 "use client"
 
+import { useEffect } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
-import { Bell, Search, User } from "lucide-react"
+import { Bell, Search, User, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useUserStore } from "@/store/userStore"
 
 export default function DashboardLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const { user, isLoading, fetchUser } = useUserStore()
+
+    useEffect(() => {
+        fetchUser()
+    }, [fetchUser])
+
+    // Get initials from full name
+    const getInitials = (name: string) => {
+        return name
+            .split(' ')
+            .map(n => n[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2)
+    }
+
     return (
         <div className="flex h-screen bg-background overflow-hidden">
             <Sidebar />
@@ -31,11 +49,29 @@ export default function DashboardLayout({
                             <Bell className="h-5 w-5 text-muted-foreground" />
                         </button>
                         <div className="flex items-center space-x-3 pl-4 border-l border-white/10">
-                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-400" />
-                            <div className="text-sm">
-                                <div className="font-medium">Sarah Lee</div>
-                                <div className="text-xs text-muted-foreground">sarah@pursuit.ai</div>
-                            </div>
+                            {isLoading ? (
+                                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                            ) : user ? (
+                                <>
+                                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center text-white text-xs font-medium">
+                                        {getInitials(user.full_name)}
+                                    </div>
+                                    <div className="text-sm">
+                                        <div className="font-medium">{user.full_name}</div>
+                                        <div className="text-xs text-muted-foreground">{user.email}</div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center">
+                                        <User className="h-4 w-4 text-white" />
+                                    </div>
+                                    <div className="text-sm">
+                                        <div className="font-medium">Guest</div>
+                                        <div className="text-xs text-muted-foreground">Not logged in</div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
                 </header>

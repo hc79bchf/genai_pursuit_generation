@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.token import Token
+from app.schemas.user import User as UserSchema
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -40,3 +42,13 @@ async def login_access_token(
         ),
         "token_type": "bearer",
     }
+
+
+@router.get("/me", response_model=UserSchema)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    Get current user information
+    """
+    return current_user
