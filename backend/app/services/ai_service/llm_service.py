@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Type, TypeVar
 from pydantic import BaseModel
 from anthropic import AsyncAnthropic
@@ -12,7 +13,7 @@ T = TypeVar("T", bound=BaseModel)
 
 class LLMService:
     def __init__(self):
-        self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self.client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         # Default to fast model, can be overridden
         self.model = settings.LLM_MODEL_FAST 
 
