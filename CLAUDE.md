@@ -205,6 +205,7 @@ pytest tests/unit/agents/ -v
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...         # Claude API
 OPENAI_API_KEY=sk-...                # Embeddings
+BRAVE_API_KEY=...                    # Web search (Research Agent)
 DATABASE_URL=postgresql+asyncpg://...
 REDIS_URL=redis://localhost:6379/0
 ```
@@ -267,13 +268,9 @@ token_tracker.add_usage(
 )
 ```
 
-### Synthesis Agent
+### PPT Outline Agent
 ```python
-# Stream responses for real-time UI updates
-async for chunk in self.llm_service.stream_completion(prompt):
-    yield chunk
-
-# Always include citations
+# Generate presentation outline with citations
 outline = {
     "sections": [...],
     "citations": [
@@ -281,6 +278,12 @@ outline = {
         {"source": "https://example.com", "text": "..."}
     ]
 }
+
+# Export to PPTX using python-pptx
+from pptx import Presentation
+prs = Presentation()
+# ... slide generation
+prs.save(output_path)
 ```
 
 ## Running Tests with Live APIs
