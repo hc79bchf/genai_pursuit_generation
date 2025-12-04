@@ -9,6 +9,32 @@
 
 ---
 
+## Implementation Status
+
+> **Note:** This document describes the target database schema. Current implementation status:
+>
+> **Implemented Models (in `backend/app/models/`):**
+> - `User` - User accounts
+> - `Pursuit` - Core pursuit entity
+> - `PursuitFile` - Uploaded files
+> - `AuditLog` - Audit trail
+>
+> **Not Yet Implemented:**
+> - `PursuitReference` - Links between pursuits
+> - `QualityTag` - User-applied quality markers
+> - `Review` - Approval workflow records
+> - `Citation` - Source citations (used as TypedDict in agents)
+> - `PursuitMetrics` - Pre-aggregated analytics
+>
+> **Memory Models (in `backend/app/services/memory/`):**
+> - `LongTermMemoryModel` - Long-term memory storage
+> - `StageReviewModel` - HITL stage reviews
+> - `LearnedPatternModel` - Learned correction patterns
+>
+> **Migrations:** Alembic not yet configured. No migrations directory exists.
+
+---
+
 ## Table of Contents
 
 1. [Schema Overview](#1-schema-overview)

@@ -5,9 +5,10 @@ import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { fetchApi } from "@/lib/api"
 import { templates } from "@/lib/data"
-import { Loader2, AlertCircle, Check, ArrowRight, Sparkles, FileText, Edit2, Trash2, Plus, X, Save, ChevronDown, Briefcase } from "lucide-react"
+import { Loader2, AlertCircle, Check, ArrowRight, Sparkles, FileText, Edit2, Trash2, Plus, X, Save, ChevronDown, Briefcase, CheckSquare, Square, RefreshCw, MessageSquare, Send } from "lucide-react"
 import { MetadataDisplay } from "@/components/metadata-display"
 import Link from "next/link"
 import { PageGuide } from "@/components/PageGuide"
@@ -73,8 +74,13 @@ interface Pursuit {
         gaps: string[]
         search_queries: string[]
         reasoning: string
+        deep_research_prompt?: string
+        prompt_status?: string
+        confirmed_gaps?: string[]
     }
 }
+
+type TabType = "gaps" | "prompt"
 
 export default function GapAssessmentPage() {
     // Check for in-progress analysis and saved selection on initial render
@@ -97,6 +103,15 @@ export default function GapAssessmentPage() {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const hasRestoredAnalysis = useRef(false)
+
+    // New states for Research Prompt tab
+    const [activeTab, setActiveTab] = useState<TabType>("gaps")
+    const [confirmedGaps, setConfirmedGaps] = useState<Set<number>>(new Set())
+    const [researchPrompt, setResearchPrompt] = useState("")
+    const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false)
+    const [isRegeneratingPrompt, setIsRegeneratingPrompt] = useState(false)
+    const [userFeedback, setUserFeedback] = useState("")
+    const [promptStatus, setPromptStatus] = useState<string>("")
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -325,6 +340,136 @@ export default function GapAssessmentPage() {
         setEditedQueries(editedQueries.filter((_, i) => i !== index))
     }
 
+    // Toggle gap confirmation
+    const toggleGapConfirmation = (index: number) => {
+        setConfirmedGaps(prev => {
+            const newSet = new Set(prev)
+            if (newSet.has(index)) {
+                newSet.delete(index)
+            } else {
+                newSet.add(index)
+            }
+            return newSet
+        })
+    }
+
+    // Select/deselect all gaps
+    const selectAllGaps = () => {
+        if (!pursuit?.gap_analysis_result?.gaps) return
+        const allIndices = pursuit.gap_analysis_result.gaps.map((_, i) => i)
+        setConfirmedGaps(new Set(allIndices))
+    }
+
+    const deselectAllGaps = () => {
+        setConfirmedGaps(new Set())
+    }
+
+    // Generate research prompt from confirmed gaps
+    const handleGeneratePrompt = async () => {
+        if (!pursuit?.gap_analysis_result?.gaps) return
+
+        const selectedGaps = pursuit.gap_analysis_result.gaps.filter((_, i) => confirmedGaps.has(i))
+        if (selectedGaps.length === 0) {
+            alert("Please select at least one gap to research")
+            return
+        }
+
+        setIsGeneratingPrompt(true)
+        try {
+            const proposalContext = {
+                industry: pursuit.industry || "",
+                service_types: pursuit.service_types || [],
+                technologies: pursuit.technologies || [],
+                requirements_met: [], // Could be populated from extraction results
+                entity_name: pursuit.entity_name,
+            }
+
+            const result = await fetchApi(`/pursuits/${pursuit.id}/generate-research-prompt`, {
+                method: "POST",
+                body: JSON.stringify({
+                    confirmed_gaps: selectedGaps,
+                    proposal_context: proposalContext
+                })
+            })
+
+            setResearchPrompt(result.deep_research_prompt || "")
+            setPromptStatus(result.prompt_status || "generated")
+
+            // Refresh pursuit data to get updated gap_analysis_result
+            const updatedPursuit = await fetchApi(`/pursuits/${pursuit.id}`)
+            setPursuit(updatedPursuit)
+
+        } catch (error) {
+            console.error("Failed to generate prompt:", error)
+            alert("Failed to generate research prompt")
+        } finally {
+            setIsGeneratingPrompt(false)
+        }
+    }
+
+    // Regenerate prompt with user feedback
+    const handleRegeneratePrompt = async () => {
+        if (!pursuit?.gap_analysis_result?.gaps || !researchPrompt) return
+        if (!userFeedback.trim()) {
+            alert("Please provide feedback on what you'd like to change")
+            return
+        }
+
+        const selectedGaps = pursuit.gap_analysis_result.gaps.filter((_, i) => confirmedGaps.has(i))
+
+        setIsRegeneratingPrompt(true)
+        try {
+            const proposalContext = {
+                industry: pursuit.industry || "",
+                service_types: pursuit.service_types || [],
+                technologies: pursuit.technologies || [],
+                entity_name: pursuit.entity_name,
+            }
+
+            const result = await fetchApi(`/pursuits/${pursuit.id}/regenerate-research-prompt`, {
+                method: "POST",
+                body: JSON.stringify({
+                    original_prompt: researchPrompt,
+                    user_feedback: userFeedback,
+                    confirmed_gaps: selectedGaps,
+                    proposal_context: proposalContext
+                })
+            })
+
+            setResearchPrompt(result.deep_research_prompt || "")
+            setPromptStatus(result.prompt_status || "regenerated")
+            setUserFeedback("")
+
+            // Refresh pursuit data
+            const updatedPursuit = await fetchApi(`/pursuits/${pursuit.id}`)
+            setPursuit(updatedPursuit)
+
+        } catch (error) {
+            console.error("Failed to regenerate prompt:", error)
+            alert("Failed to regenerate research prompt")
+        } finally {
+            setIsRegeneratingPrompt(false)
+        }
+    }
+
+    // Load existing prompt when pursuit changes
+    useEffect(() => {
+        if (pursuit?.gap_analysis_result?.deep_research_prompt) {
+            setResearchPrompt(pursuit.gap_analysis_result.deep_research_prompt)
+            setPromptStatus(pursuit.gap_analysis_result.prompt_status || "")
+            // Restore confirmed gaps if available
+            if (pursuit.gap_analysis_result.confirmed_gaps) {
+                const gapIndices = pursuit.gap_analysis_result.gaps
+                    .map((gap, i) => pursuit.gap_analysis_result!.confirmed_gaps!.includes(gap) ? i : -1)
+                    .filter(i => i !== -1)
+                setConfirmedGaps(new Set(gapIndices))
+            }
+        } else {
+            setResearchPrompt("")
+            setPromptStatus("")
+        }
+    }, [pursuit?.id, pursuit?.gap_analysis_result?.deep_research_prompt])
+
     // Only show full page loading for initial pursuits list load (not when we have a saved selection)
     if (isLoadingList && pursuits.length === 0 && !selectedPursuitId) {
         return (
@@ -549,159 +694,360 @@ export default function GapAssessmentPage() {
                 </div>
             </div>
 
-            {/* Analysis Results */}
+            {/* Analysis Results with Tabs */}
             {pursuit?.gap_analysis_result && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-6 mt-12 pt-8 border-t border-white/10"
                 >
+                    {/* Tab Navigation */}
                     <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-white">Analysis Results</h2>
-                        <div className="flex items-center gap-3 relative z-10">
-                            {!isEditing ? (
-                                <>
-                                    <span className="text-xs text-muted-foreground">Generated by AI Agent</span>
+                        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
+                            <button
+                                onClick={() => setActiveTab("gaps")}
+                                className={cn(
+                                    "px-4 py-2 rounded-md text-sm font-medium transition-all",
+                                    activeTab === "gaps"
+                                        ? "bg-primary text-white"
+                                        : "text-muted-foreground hover:text-white hover:bg-white/10"
+                                )}
+                            >
+                                <span className="flex items-center gap-2">
+                                    <AlertCircle className="h-4 w-4" />
+                                    Gap Analysis
+                                </span>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("prompt")}
+                                className={cn(
+                                    "px-4 py-2 rounded-md text-sm font-medium transition-all",
+                                    activeTab === "prompt"
+                                        ? "bg-primary text-white"
+                                        : "text-muted-foreground hover:text-white hover:bg-white/10"
+                                )}
+                            >
+                                <span className="flex items-center gap-2">
+                                    <MessageSquare className="h-4 w-4" />
+                                    Research Prompt
+                                    {researchPrompt && (
+                                        <span className="w-2 h-2 bg-green-400 rounded-full" />
+                                    )}
+                                </span>
+                            </button>
+                        </div>
+
+                        {/* Action Buttons for Gap Analysis Tab */}
+                        {activeTab === "gaps" && (
+                            <div className="flex items-center gap-3 relative z-10">
+                                {!isEditing ? (
+                                    <>
+                                        <span className="text-xs text-muted-foreground">Generated by AI Agent</span>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={handleStartEditing}
+                                            className="gap-2"
+                                        >
+                                            <Edit2 className="h-3 w-3" />
+                                            Edit Results
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={handleCancelEditing}
+                                            disabled={isSaving}
+                                            className="gap-2"
+                                        >
+                                            <X className="h-3 w-3" />
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleSaveChanges}
+                                            disabled={isSaving}
+                                            className="gap-2 bg-primary hover:bg-primary/90"
+                                        >
+                                            {isSaving ? (
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                            ) : (
+                                                <Save className="h-3 w-3" />
+                                            )}
+                                            Save Changes
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Gap Analysis Tab Content */}
+                    {activeTab === "gaps" && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Gaps */}
+                            <div className="glass-card rounded-xl p-6 border border-white/10">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-md font-medium text-white flex items-center gap-2">
+                                        <AlertCircle className="h-4 w-4 text-red-400" />
+                                        Identified Gaps
+                                    </h3>
+                                    {isEditing && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={addGap}
+                                            className="h-8 gap-1 text-xs"
+                                        >
+                                            <Plus className="h-3 w-3" />
+                                            Add Gap
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="space-y-3">
+                                    {!isEditing ? (
+                                        pursuit.gap_analysis_result.gaps.map((gap: string, i: number) => (
+                                            <div key={i} className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-200">
+                                                {gap}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        editedGaps.map((gap: string, i: number) => (
+                                            <div key={i} className="flex items-center gap-2">
+                                                <Input
+                                                    value={gap}
+                                                    onChange={(e) => updateGap(i, e.target.value)}
+                                                    className="bg-red-500/10 border-red-500/20 text-red-200 focus:border-red-500/40"
+                                                    placeholder="Enter gap description"
+                                                />
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => removeGap(i)}
+                                                    className="shrink-0 h-9 w-9 p-0 hover:bg-red-500/20"
+                                                >
+                                                    <Trash2 className="h-3 w-3 text-red-400" />
+                                                </Button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Search Queries */}
+                            <div className="glass-card rounded-xl p-6 border border-white/10">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-md font-medium text-white flex items-center gap-2">
+                                        <Sparkles className="h-4 w-4 text-blue-400" />
+                                        Recommended Search Queries
+                                    </h3>
+                                    {isEditing && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={addQuery}
+                                            className="h-8 gap-1 text-xs"
+                                        >
+                                            <Plus className="h-3 w-3" />
+                                            Add Query
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="space-y-3">
+                                    {!isEditing ? (
+                                        pursuit.gap_analysis_result.search_queries.map((query: string, i: number) => (
+                                            <div key={i} className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-200 flex items-center justify-between group cursor-pointer hover:bg-blue-500/20 transition-colors">
+                                                <span>{query}</span>
+                                                <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
+                                        ))
+                                    ) : (
+                                        editedQueries.map((query: string, i: number) => (
+                                            <div key={i} className="flex items-center gap-2">
+                                                <Input
+                                                    value={query}
+                                                    onChange={(e) => updateQuery(i, e.target.value)}
+                                                    className="bg-blue-500/10 border-blue-500/20 text-blue-200 focus:border-blue-500/40"
+                                                    placeholder="Enter search query"
+                                                />
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => removeQuery(i)}
+                                                    className="shrink-0 h-9 w-9 p-0 hover:bg-blue-500/20"
+                                                >
+                                                    <Trash2 className="h-3 w-3 text-blue-400" />
+                                                </Button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Research Prompt Tab Content */}
+                    {activeTab === "prompt" && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Left: Gap Confirmation */}
+                            <div className="glass-card rounded-xl p-6 border border-white/10">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-md font-medium text-white flex items-center gap-2">
+                                        <CheckSquare className="h-4 w-4 text-green-400" />
+                                        Confirm Gaps to Research
+                                    </h3>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={selectAllGaps}
+                                            className="h-7 text-xs"
+                                        >
+                                            Select All
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={deselectAllGaps}
+                                            className="h-7 text-xs"
+                                        >
+                                            Clear
+                                        </Button>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-muted-foreground mb-4">
+                                    Select the gaps you want to include in the deep research prompt. The AI will generate a comprehensive research prompt based on your selections.
+                                </p>
+                                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                                    {pursuit.gap_analysis_result.gaps.map((gap: string, i: number) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => toggleGapConfirmation(i)}
+                                            className={cn(
+                                                "w-full p-3 rounded-lg text-sm text-left flex items-start gap-3 transition-all",
+                                                confirmedGaps.has(i)
+                                                    ? "bg-green-500/20 border border-green-500/30 text-green-200"
+                                                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+                                            )}
+                                        >
+                                            {confirmedGaps.has(i) ? (
+                                                <CheckSquare className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
+                                            ) : (
+                                                <Square className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                                            )}
+                                            <span>{gap}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Generate Button */}
+                                <div className="mt-6 pt-4 border-t border-white/10">
                                     <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={handleStartEditing}
-                                        className="gap-2"
+                                        onClick={handleGeneratePrompt}
+                                        disabled={isGeneratingPrompt || confirmedGaps.size === 0}
+                                        className="w-full bg-primary hover:bg-primary/90"
                                     >
-                                        <Edit2 className="h-3 w-3" />
-                                        Edit Results
-                                    </Button>
-                                </>
-                            ) : (
-                                <>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={handleCancelEditing}
-                                        disabled={isSaving}
-                                        className="gap-2"
-                                    >
-                                        <X className="h-3 w-3" />
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        onClick={handleSaveChanges}
-                                        disabled={isSaving}
-                                        className="gap-2 bg-primary hover:bg-primary/90"
-                                    >
-                                        {isSaving ? (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                        {isGeneratingPrompt ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Generating Prompt...
+                                            </>
                                         ) : (
-                                            <Save className="h-3 w-3" />
+                                            <>
+                                                <Sparkles className="mr-2 h-4 w-4" />
+                                                Generate Research Prompt ({confirmedGaps.size} gaps)
+                                            </>
                                         )}
-                                        Save Changes
                                     </Button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* Gaps */}
-                        <div className="glass-card rounded-xl p-6 border border-white/10">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-md font-medium text-white flex items-center gap-2">
-                                    <AlertCircle className="h-4 w-4 text-red-400" />
-                                    Identified Gaps
-                                </h3>
-                                {isEditing && (
-                                    <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={addGap}
-                                        className="h-8 gap-1 text-xs"
-                                    >
-                                        <Plus className="h-3 w-3" />
-                                        Add Gap
-                                    </Button>
-                                )}
+                                </div>
                             </div>
-                            <div className="space-y-3">
-                                {!isEditing ? (
-                                    pursuit.gap_analysis_result.gaps.map((gap: string, i: number) => (
-                                        <div key={i} className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-200">
-                                            {gap}
+
+                            {/* Right: Research Prompt Editor */}
+                            <div className="glass-card rounded-xl p-6 border border-white/10 flex flex-col">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-md font-medium text-white flex items-center gap-2">
+                                        <FileText className="h-4 w-4 text-purple-400" />
+                                        Research Prompt
+                                        {promptStatus && (
+                                            <span className={cn(
+                                                "text-xs px-2 py-0.5 rounded-full",
+                                                promptStatus === "generated" ? "bg-green-500/20 text-green-300" :
+                                                promptStatus === "regenerated" ? "bg-blue-500/20 text-blue-300" :
+                                                "bg-gray-500/20 text-gray-300"
+                                            )}>
+                                                {promptStatus}
+                                            </span>
+                                        )}
+                                    </h3>
+                                </div>
+
+                                {researchPrompt ? (
+                                    <>
+                                        <Textarea
+                                            value={researchPrompt}
+                                            onChange={(e) => setResearchPrompt(e.target.value)}
+                                            className="flex-1 min-h-[300px] bg-white/5 border-white/10 text-white resize-none"
+                                            placeholder="Research prompt will appear here..."
+                                        />
+
+                                        {/* Feedback Section */}
+                                        <div className="mt-4 space-y-3">
+                                            <label className="text-sm font-medium text-white flex items-center gap-2">
+                                                <RefreshCw className="h-4 w-4 text-yellow-400" />
+                                                Request Changes
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    value={userFeedback}
+                                                    onChange={(e) => setUserFeedback(e.target.value)}
+                                                    placeholder="e.g., Focus more on HIPAA compliance, add vendor evaluation criteria..."
+                                                    className="flex-1 bg-white/5 border-white/10"
+                                                />
+                                                <Button
+                                                    onClick={handleRegeneratePrompt}
+                                                    disabled={isRegeneratingPrompt || !userFeedback.trim()}
+                                                    variant="outline"
+                                                    className="shrink-0"
+                                                >
+                                                    {isRegeneratingPrompt ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Send className="h-4 w-4" />
+                                                    )}
+                                                </Button>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                Provide feedback and the AI will regenerate the prompt while following best practices.
+                                            </p>
                                         </div>
-                                    ))
-                                ) : (
-                                    editedGaps.map((gap: string, i: number) => (
-                                        <div key={i} className="flex items-center gap-2">
-                                            <Input
-                                                value={gap}
-                                                onChange={(e) => updateGap(i, e.target.value)}
-                                                className="bg-red-500/10 border-red-500/20 text-red-200 focus:border-red-500/40"
-                                                placeholder="Enter gap description"
-                                            />
+
+                                        {/* Proceed to Research Button */}
+                                        <div className="mt-6 pt-4 border-t border-white/10">
                                             <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => removeGap(i)}
-                                                className="shrink-0 h-9 w-9 p-0 hover:bg-red-500/20"
+                                                asChild
+                                                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
                                             >
-                                                <Trash2 className="h-3 w-3 text-red-400" />
+                                                <Link href="/dashboard/deep-search">
+                                                    <ArrowRight className="mr-2 h-4 w-4" />
+                                                    Proceed to Deep Search
+                                                </Link>
                                             </Button>
                                         </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Search Queries */}
-                        <div className="glass-card rounded-xl p-6 border border-white/10">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-md font-medium text-white flex items-center gap-2">
-                                    <Sparkles className="h-4 w-4 text-blue-400" />
-                                    Recommended Search Queries
-                                </h3>
-                                {isEditing && (
-                                    <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={addQuery}
-                                        className="h-8 gap-1 text-xs"
-                                    >
-                                        <Plus className="h-3 w-3" />
-                                        Add Query
-                                    </Button>
-                                )}
-                            </div>
-                            <div className="space-y-3">
-                                {!isEditing ? (
-                                    pursuit.gap_analysis_result.search_queries.map((query: string, i: number) => (
-                                        <div key={i} className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-200 flex items-center justify-between group cursor-pointer hover:bg-blue-500/20 transition-colors">
-                                            <span>{query}</span>
-                                            <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                    ))
+                                    </>
                                 ) : (
-                                    editedQueries.map((query: string, i: number) => (
-                                        <div key={i} className="flex items-center gap-2">
-                                            <Input
-                                                value={query}
-                                                onChange={(e) => updateQuery(i, e.target.value)}
-                                                className="bg-blue-500/10 border-blue-500/20 text-blue-200 focus:border-blue-500/40"
-                                                placeholder="Enter search query"
-                                            />
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => removeQuery(i)}
-                                                className="shrink-0 h-9 w-9 p-0 hover:bg-blue-500/20"
-                                            >
-                                                <Trash2 className="h-3 w-3 text-blue-400" />
-                                            </Button>
-                                        </div>
-                                    ))
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+                                        <MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                                        <h4 className="text-lg font-medium text-white mb-2">No Prompt Generated Yet</h4>
+                                        <p className="text-sm text-muted-foreground max-w-xs">
+                                            Select the gaps you want to research and click "Generate Research Prompt" to create a comprehensive AI research prompt.
+                                        </p>
+                                    </div>
                                 )}
                             </div>
                         </div>
-                    </div>
+                    )}
                 </motion.div>
             )}
         </div>

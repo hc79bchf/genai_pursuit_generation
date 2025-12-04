@@ -18,6 +18,9 @@ from typing import Optional, Dict, Any
 class PPTGenerationRequest(BaseModel):
     custom_research: Optional[Dict[str, Any]] = None
 
+class ResearchRequest(BaseModel):
+    deep_research_prompt: Optional[str] = None
+
 from app.core.database import get_db
 from app.models.pursuit import Pursuit
 from app.models.pursuit_file import PursuitFile
@@ -164,6 +167,7 @@ async def upload_file(
     pursuit_id: UUID,
     file: UploadFile = File(...),
     file_type: str = Form(...),
+    description: str = Form(None),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
@@ -175,16 +179,31 @@ async def upload_file(
     if not pursuit:
         raise HTTPException(status_code=404, detail="Pursuit not found")
 
+    # Check for duplicate file name
+    result = await db.execute(
+        select(PursuitFile).where(
+            PursuitFile.pursuit_id == pursuit_id,
+            PursuitFile.file_name == file.filename,
+            PursuitFile.is_deleted == False
+        )
+    )
+    existing_file = result.scalars().first()
+    if existing_file:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A file named '{file.filename}' already exists for this pursuit"
+        )
+
     # Save file
     upload_dir = f"uploads/{pursuit_id}"
     os.makedirs(upload_dir, exist_ok=True)
     file_path = f"{upload_dir}/{file.filename}"
-    
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     file_size = os.path.getsize(file_path)
-    
+
     db_file = PursuitFile(
         pursuit_id=pursuit_id,
         file_name=file.filename,
@@ -192,6 +211,9 @@ async def upload_file(
         file_path=file_path,
         file_size_bytes=file_size,
         mime_type=file.content_type or "application/octet-stream",
+        description=description,
+        uploaded_by_id=current_user.id,
+        uploaded_by_name=current_user.full_name or current_user.email,
         uploaded_at=datetime.utcnow()
     )
     db.add(db_file)
@@ -260,27 +282,66 @@ async def extract_metadata(
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
 
-    # 4. Initialize Agent
-    from app.services.ai_service.llm_service import LLMService
-    from app.services.ai_service.metadata_agent import MetadataExtractionAgent
-    from app.services.ai_service.gap_analysis_agent import GapAnalysisAgent
-    from app.services.ai_service.research_agent import ResearchAgent
-    from app.services.ai_service.ppt_outline_agent import PPTOutlineAgent
-    
-    llm_service = LLMService()
-    agent = MetadataExtractionAgent(llm_service)
+    # 4. Extract Metadata using new agent from main branch
+    from app.services.agents.metadata_extraction_agent import metadata_extraction_agent
+    from app.core.config import settings
 
     # 5. Extract Metadata
     try:
-        extracted_data = await agent.extract(rfp_text, user_id=str(current_user.id))
+        extraction_result = await metadata_extraction_agent(
+            rfp_text=rfp_text,
+            pursuit_id=str(pursuit_id),
+            session_id=str(current_user.id),
+            redis_url=settings.REDIS_URL,
+            database_url=settings.DATABASE_URL,
+            chroma_persist_dir=settings.CHROMA_PERSIST_DIR
+        )
+
+        # Log extraction stats
+        logger.info(
+            f"Metadata extraction completed",
+            extra={
+                "pursuit_id": str(pursuit_id),
+                "processing_time_ms": extraction_result["processing_time_ms"],
+                "memory_enhanced": extraction_result["memory_enhanced"],
+                "input_tokens": extraction_result["input_tokens"],
+                "output_tokens": extraction_result["output_tokens"],
+                "estimated_cost_usd": extraction_result["estimated_cost_usd"],
+                "validation_status": extraction_result["validation_results"]["status"]
+            }
+        )
+
+        # Convert extraction result to flat dict for updating pursuit
+        extracted_data = {}
+        for field_name, field_result in extraction_result["extracted_fields"].items():
+            if field_result.get("value") is not None:
+                extracted_data[field_name] = field_result["value"]
+
     except Exception as e:
         logger.error(f"Extraction failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
-    # 6. Update Pursuit
+    # 6. Capture overview snapshot BEFORE applying extraction (for conflict detection)
+    # Convert Decimal to float for JSON serialization
+    from decimal import Decimal
+    estimated_fees_value = pursuit.estimated_fees_usd
+    if isinstance(estimated_fees_value, Decimal):
+        estimated_fees_value = float(estimated_fees_value)
+
+    overview_snapshot = {
+        "entity_name": pursuit.entity_name,
+        "industry": pursuit.industry,
+        "geography": pursuit.geography,
+        "submission_due_date": str(pursuit.submission_due_date) if pursuit.submission_due_date else None,
+        "estimated_fees_usd": estimated_fees_value,
+        "service_types": pursuit.service_types or [],
+        "technologies": pursuit.technologies or [],
+    }
+
+    # 7. Update Pursuit
     # Map extracted fields to Pursuit model fields
     # Note: extracted_data is a dict from the agent
-    
+
     if extracted_data.get("entity_name"):
         pursuit.entity_name = extracted_data["entity_name"]
     if extracted_data.get("client_pursuit_owner_name"):
@@ -296,18 +357,67 @@ async def extract_metadata(
     if extracted_data.get("geography"):
         pursuit.geography = extracted_data["geography"]
     if extracted_data.get("submission_due_date"):
-        pursuit.submission_due_date = extracted_data["submission_due_date"]
+        # Convert string date to date object if needed
+        due_date = extracted_data["submission_due_date"]
+        if isinstance(due_date, str):
+            from datetime import date as date_type
+            try:
+                pursuit.submission_due_date = date_type.fromisoformat(due_date)
+            except ValueError:
+                logger.warning(f"Invalid date format: {due_date}")
+        else:
+            pursuit.submission_due_date = due_date
     if extracted_data.get("estimated_fees_usd"):
         pursuit.estimated_fees_usd = extracted_data["estimated_fees_usd"]
     if extracted_data.get("expected_format"):
         pursuit.expected_format = extracted_data["expected_format"]
-    if extracted_data.get("rfp_objective"):
-        # Store in requirements_text or a new field? 
-        # For now, let's append to requirements_text or just ignore if no field maps perfectly
-        pass
-    
-    # Store full extraction in outline_json or similar if needed, or just update fields
-    # For now, we updated the main fields.
+
+    # Store objectives and requirements (now arrays of objects with text, citation, confidence)
+    objectives_raw = extracted_data.get("proposal_objectives", [])
+    requirements_raw = extracted_data.get("requirements", [])
+
+    # Store the FULL extraction result in outline_json for frontend access
+    # This includes confidence scores, validation results, etc.
+    # Convert any Decimal values to float for JSON serialization
+    extraction_cost = extraction_result.get("estimated_cost_usd", 0)
+    if isinstance(extraction_cost, Decimal):
+        extraction_cost = float(extraction_cost)
+
+    extraction_data = pursuit.outline_json or {}
+    extraction_data["metadata_extraction"] = {
+        "extracted_fields": extraction_result["extracted_fields"],
+        "validation_results": extraction_result["validation_results"],
+        "processing_time_ms": extraction_result["processing_time_ms"],
+        "memory_enhanced": extraction_result["memory_enhanced"],
+        "input_tokens": extraction_result["input_tokens"],
+        "output_tokens": extraction_result["output_tokens"],
+        "estimated_cost_usd": extraction_cost,
+    }
+    # Store objectives and requirements with citations for frontend
+    # Format: [{"text": "...", "citation": "...", "confidence": 0.9}, ...]
+    extraction_data["extracted_objectives"] = objectives_raw
+    extraction_data["extracted_requirements"] = requirements_raw
+    # Store overview snapshot for conflict detection in frontend
+    extraction_data["overview_snapshot"] = overview_snapshot
+    pursuit.outline_json = extraction_data
+
+    # Also create readable text for requirements_text field
+    # Extract just the text from the new format (handles both old string format and new object format)
+    def get_item_text(item):
+        if isinstance(item, dict):
+            return item.get("text", str(item))
+        return str(item)
+
+    if objectives_raw or requirements_raw:
+        text_parts = []
+        if objectives_raw:
+            obj_texts = [get_item_text(obj) for obj in objectives_raw]
+            text_parts.append("## Objectives\n" + "\n".join(f"- {obj}" for obj in obj_texts))
+        if requirements_raw:
+            req_texts = [get_item_text(req) for req in requirements_raw]
+            text_parts.append("## Requirements\n" + "\n".join(f"- {req}" for req in req_texts))
+        if text_parts:
+            pursuit.requirements_text = "\n\n".join(text_parts)
 
     pursuit.updated_at = datetime.utcnow()
     db.add(pursuit)
@@ -399,6 +509,122 @@ async def trigger_gap_analysis(
 
     return pursuit
 
+class GenerateResearchPromptRequest(BaseModel):
+    """Request schema for generating deep research prompt"""
+    confirmed_gaps: List[str]
+    proposal_context: Dict[str, Any]
+
+
+class RegenerateResearchPromptRequest(BaseModel):
+    """Request schema for regenerating deep research prompt with user feedback"""
+    original_prompt: str
+    user_feedback: str
+    confirmed_gaps: List[str]
+    proposal_context: Dict[str, Any]
+
+
+@router.post("/{pursuit_id}/generate-research-prompt")
+async def generate_research_prompt(
+    *,
+    db: AsyncSession = Depends(get_db),
+    pursuit_id: UUID,
+    request: GenerateResearchPromptRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Generate a deep research prompt from user-confirmed gaps.
+    This endpoint is called AFTER the user confirms the gaps from gap analysis.
+    """
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+    if not pursuit:
+        raise HTTPException(status_code=404, detail="Pursuit not found")
+
+    from app.services.ai_service.llm_service import LLMService
+    from app.services.ai_service.gap_analysis_agent import GapAnalysisAgent
+
+    try:
+        llm_service = LLMService()
+        agent = GapAnalysisAgent(llm_service)
+        prompt_result = await agent.generate_deep_research_prompt(
+            confirmed_gaps=request.confirmed_gaps,
+            proposal_context=request.proposal_context,
+            user_id=str(current_user.id)
+        )
+
+        # Store the generated prompt in gap_analysis_result
+        gap_analysis = pursuit.gap_analysis_result or {}
+        gap_analysis["deep_research_prompt"] = prompt_result.get("deep_research_prompt", "")
+        gap_analysis["prompt_status"] = prompt_result.get("prompt_status", "generated")
+        gap_analysis["confirmed_gaps"] = request.confirmed_gaps
+        pursuit.gap_analysis_result = gap_analysis
+        pursuit.updated_at = datetime.utcnow()
+        db.add(pursuit)
+        await db.commit()
+
+        return prompt_result
+
+    except Exception as e:
+        logger.error(f"Failed to generate research prompt: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate research prompt: {str(e)}")
+
+
+@router.post("/{pursuit_id}/regenerate-research-prompt")
+async def regenerate_research_prompt(
+    *,
+    db: AsyncSession = Depends(get_db),
+    pursuit_id: UUID,
+    request: RegenerateResearchPromptRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Regenerate the deep research prompt based on user feedback.
+    The regenerated prompt incorporates user feedback while maintaining best practices.
+    """
+    result = await db.execute(
+        select(Pursuit)
+        .options(selectinload(Pursuit.files))
+        .where(Pursuit.id == pursuit_id)
+    )
+    pursuit = result.scalars().first()
+    if not pursuit:
+        raise HTTPException(status_code=404, detail="Pursuit not found")
+
+    from app.services.ai_service.llm_service import LLMService
+    from app.services.ai_service.gap_analysis_agent import GapAnalysisAgent
+
+    try:
+        llm_service = LLMService()
+        agent = GapAnalysisAgent(llm_service)
+        prompt_result = await agent.regenerate_deep_research_prompt(
+            original_prompt=request.original_prompt,
+            user_feedback=request.user_feedback,
+            confirmed_gaps=request.confirmed_gaps,
+            proposal_context=request.proposal_context,
+            user_id=str(current_user.id)
+        )
+
+        # Store the regenerated prompt in gap_analysis_result
+        gap_analysis = pursuit.gap_analysis_result or {}
+        gap_analysis["deep_research_prompt"] = prompt_result.get("deep_research_prompt", "")
+        gap_analysis["prompt_status"] = prompt_result.get("prompt_status", "regenerated")
+        gap_analysis["user_feedback"] = request.user_feedback
+        pursuit.gap_analysis_result = gap_analysis
+        pursuit.updated_at = datetime.utcnow()
+        db.add(pursuit)
+        await db.commit()
+
+        return prompt_result
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate research prompt: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate research prompt: {str(e)}")
+
+
 @router.patch("/{pursuit_id}/gap-analysis", response_model=pursuit_schemas.Pursuit)
 async def update_gap_analysis(
     *,
@@ -446,10 +672,12 @@ async def trigger_research(
     *,
     db: AsyncSession = Depends(get_db),
     pursuit_id: UUID,
+    request: Optional[ResearchRequest] = Body(None),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
     Trigger deep research using search queries from gap analysis (runs synchronously).
+    Optionally accepts a deep_research_prompt to guide the research.
     """
     result = await db.execute(
         select(Pursuit)
@@ -468,6 +696,13 @@ async def trigger_research(
     if not search_queries:
         raise HTTPException(status_code=400, detail="No search queries found in gap analysis")
 
+    # Get deep research prompt - prefer request body, fallback to stored value
+    deep_research_prompt = None
+    if request and request.deep_research_prompt:
+        deep_research_prompt = request.deep_research_prompt
+    elif pursuit.gap_analysis_result.get("deep_research_prompt"):
+        deep_research_prompt = pursuit.gap_analysis_result.get("deep_research_prompt")
+
     # Prepare pursuit context
     pursuit_context = {
         "id": str(pursuit.id),
@@ -476,6 +711,7 @@ async def trigger_research(
         "service_types": pursuit.service_types or [],
         "technologies": pursuit.technologies or [],
         "requirements_text": pursuit.requirements_text,
+        "deep_research_prompt": deep_research_prompt,
     }
 
     # Run research synchronously

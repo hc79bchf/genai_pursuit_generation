@@ -1,10 +1,25 @@
 # Technical Architecture Specification
 # Pursuit Response Platform
 
-**Version:** 1.0
-**Date:** 2025-11-18
-**Status:** Technical Design
-**Stack:** React + FastAPI + PostgreSQL
+**Version:** 1.1
+**Date:** 2025-12-02
+**Status:** In Development
+**Stack:** Next.js + FastAPI + PostgreSQL
+
+---
+
+## Implementation Status
+
+> **Note:** This document describes the target architecture. Key implementation updates:
+>
+> **Frontend:** Next.js 14 with App Router (not Vite/React Router as originally planned)
+> - Location: `frontend/src/app/` for pages, `frontend/src/components/` for components
+>
+> **Backend:** FastAPI with 7-agent pipeline (expanded from original 4-agent design)
+> - All 7 agents implemented in `backend/app/services/agents/`
+> - Full memory system in `backend/app/services/memory/`
+>
+> **See `CLAUDE.md` for current implementation details.**
 
 ---
 
@@ -78,8 +93,8 @@
 ├───────────┤  ├───────────┤  ├────────────────────────────┤
 │PostgreSQL │  │   Local   │  │ Anthropic Claude API       │
 │  15+      │  │   /data   │  │ OpenAI Embeddings API      │
-│           │  │   (MVP)   │  │ Web Search API             │
-│ChromaDB   │  │           │  │ (Brave/SerpAPI)            │
+│           │  │   (MVP)   │  │ Claude API Web Search      │
+│ChromaDB   │  │           │  │                            │
 │extension  │  │   S3      │  │                            │
 │           │  │  (future) │  │                            │
 └───────────┘  └───────────┘  └────────────────────────────┘
@@ -152,10 +167,10 @@
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **LLM** | Anthropic Claude 3.5 Sonnet | Outline generation, refinement, analysis |
+| **LLM** | Anthropic Claude Sonnet 4.5 | Outline generation, refinement, analysis |
 | **LLM (Simple)** | Anthropic Claude 3 Haiku | Metadata extraction, simple tasks |
 | **Embeddings** | OpenAI text-embedding-3-small | Vector embeddings (1536 dimensions) |
-| **Web Search** | Brave Search API or SerpAPI | Web research for gap filling |
+| **Web Search** | Claude API web search | Web research for gap filling |
 
 ### 2.5 DevOps & Infrastructure
 
@@ -234,12 +249,17 @@
 
 3. Celery Worker (Background)
    └─> Task dequeued from Redis
-   └─> Agent 1: Metadata Extraction (15s)
-           └─> Agent 2: Gap Analysis (30s)
-               └─> Agent 3: Web Research (60s)
-                   └─> Agent 4: Synthesis (90s)
-                       └─> Updates pursuit record in DB
-                           └─> Task marked complete
+   └─> Agent 1: Metadata Extraction (15-30s)
+       └─> [HITL Review] → Agent 2: Team Composition (30-60s)
+           └─> [HITL Review] → Agent 3: Similar Pursuit Identification (15-30s)
+               └─> [HITL Review] → Agent 4: Gap Analysis (30s)
+                   └─> [HITL Review] → Agent 5: Research (Web + Arxiv) (120s)
+                       └─> [HITL Review] → Agent 6: Synthesis (60-90s)
+                           └─> [CRITICAL GATE: PM + PP Approval]
+                               └─> Agent 7: Document Generation (30-60s)
+                                   └─> [Final Validation B: GPT-4o]
+                                       └─> Updates pursuit record in DB
+                                           └─> Task marked complete
 
 4. Frontend Polling
    └─> Frontend polls /api/v1/tasks/{task_id}/status
@@ -1237,7 +1257,7 @@ We use **ChromaDB** as the dedicated vector store for semantic search.
 
 ## 7. AI Integration Architecture
 
-### 7.1 Four-Agent Sequential Architecture
+### 7.1 Seven-Agent Sequential Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1267,7 +1287,7 @@ We use **ChromaDB** as the dedicated vector store for semantic search.
 │  Agent 3: Web Research Agent                                 │
 │  ├─ Input: Gap Analysis Report (research queries) + Metadata│
 │  ├─ Process:                                                 │
-│  │  ├─ Execute web searches (Brave/SerpAPI)                 │
+│  │  ├─ Execute web searches (Claude API)                    │
 │  │  ├─ Filter by metadata relevance                         │
 │  │  ├─ Validate source credibility                          │
 │  │  ├─ Extract key information                              │
@@ -1288,7 +1308,7 @@ We use **ChromaDB** as the dedicated vector store for semantic search.
 │  └─ Duration: ~60-90 seconds                                 │
 │         │                                                    │
 │         ▼                                                    │
-│  ✓ Total Duration: < 4 minutes                              │
+│  ✓ Total Duration: ~15 min (target < 7 min)                 │
 │  ✓ Outline saved to database                                │
 │  ✓ User notified                                            │
 │                                                              │
@@ -1361,7 +1381,7 @@ class AIService:
         """
 
         response = await self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5-20250929",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1423,7 +1443,7 @@ class AIService:
         """
 
         response = await self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5-20250929",
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1592,7 +1612,7 @@ class AIService:
         # Stream response
         outline_text = ""
         async with self.anthropic.messages.stream(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5-20250929",
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]
         ) as stream:
@@ -1607,13 +1627,16 @@ class AIService:
             return {"error": "Failed to parse outline JSON from LLM response.", "raw_response": outline_text}
 
     async def _web_search(self, query: str) -> List[Dict]:
-        """Execute web search using Brave Search API"""
-        response = await self.search_client.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            headers={"X-Subscription-Token": settings.BRAVE_API_KEY},
-            params={"q": query, "count": 10}
+        """Execute web search using Claude API web search"""
+        # Uses Claude's built-in web search capability
+        response = await self.claude_client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": f"Search the web for: {query}"}],
+            # Claude API web search is enabled via the API
         )
-        return response.json()["web"]["results"]
+        # Parse search results from Claude's response
+        return self._parse_search_results(response.content[0].text)
 
     def _filter_by_metadata(self, results: List[Dict], metadata: Dict) -> List[Dict]:
         """Filter search results by metadata relevance (simplified)"""
@@ -1783,17 +1806,18 @@ class SSRFProtection:
 
         return response
 
-# Usage in research agent
-async def web_search(client: httpx.AsyncClient, query: str) -> List[Dict]:
-    """Execute Brave Search API with SSRF protection"""
-    # Brave API is trusted, but validate fetched content URLs
-    response = await client.get(
-        "https://api.search.brave.com/res/v1/web/search",
-        headers={"X-Subscription-Token": settings.BRAVE_API_KEY},
-        params={"q": query, "count": 10}
+# Usage in research agent - Claude API web search
+async def web_search(claude_client: AsyncAnthropic, query: str) -> List[Dict]:
+    """Execute Claude API web search with result validation"""
+    # Use Claude's built-in web search capability
+    response = await claude_client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": f"Search the web for: {query}"}],
     )
 
-    results = response.json()["web"]["results"]
+    # Parse results from Claude's response
+    results = parse_search_results(response.content[0].text)
 
     # Filter out results with unsafe URLs before content extraction
     safe_results = []

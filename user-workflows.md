@@ -960,7 +960,7 @@ This document details the user workflows, UI/UX requirements, and feature specif
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Step 4: Four-Agent Re-Execution                       │
+│ Step 4: Seven-Agent Re-Execution                      │
 ├─────────────────────────────────────────────────────────┤
 │ Progress displayed:                                      │
 │ [Agent 1] Extracting metadata from RFP... 15s           │
@@ -1028,7 +1028,7 @@ User can remove additional references:
 - ✅ Gap Analysis Agent reduces web research for filled gaps
 - ✅ User can remove references and regenerate
 - ✅ Regeneration logged in conversation history
-- ✅ Total regeneration time < 3 minutes
+- ✅ Total regeneration time ~15 minutes (7-agent pipeline)
 
 **Postconditions:**
 - Additional reference documents stored and indexed
@@ -1255,7 +1255,7 @@ Where:
 
 ---
 
-### 4.2 Feature: AI Outline Generation with Four-Agent Architecture
+### 4.2 Feature: AI Outline Generation with Seven-Agent Architecture
 
 **Description:** Generate comprehensive outline using three specialized agents that analyze gaps, conduct targeted research, and synthesize content
 
@@ -1265,7 +1265,7 @@ Where:
 - **Pursuit metadata (industry, service types, technologies, geography)**
 - Web search capability
 
-**Four-Agent Sequential Process:**
+**Seven-Agent Sequential Process:**
 
 **Agent 1: Metadata Extraction Agent (~15 seconds)**
 - **Input:** RFP Documents
@@ -1565,7 +1565,7 @@ Output Format: JSON
 - Agent 3 (Web Research) → 60 seconds → Output: Research Findings
 - Agent 4 (Synthesis) → 90 seconds → Output: Proposal Outline
 
-**Performance Target:** < 3 minutes total (30s + 60s + 90s)
+**Performance Target:** ~15 minutes total (7-agent pipeline with HITL, target < 7 min)
 
 ---
 
@@ -1795,8 +1795,8 @@ Output Format: JSON
 
 - Page load time: < 2 seconds
 - Search results: < 30 seconds
-- Outline generation: < 3 minutes
-- Document generation: < 4 minutes
+- Outline generation: ~15 min (target < 7 min)
+- Document generation: ~6-7 min (target < 4 min)
 - UI interactions: < 500ms response
 
 ### 6.2 Usability

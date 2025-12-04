@@ -8,10 +8,18 @@ from uuid import UUID
 
 class PursuitBase(BaseModel):
     entity_name: Optional[str] = None
+    entity_number: Optional[str] = None
     client_pursuit_owner_name: Optional[str] = None
     client_pursuit_owner_email: Optional[str] = None
+    entity_sponsor_name: Optional[str] = None
+    entity_sponsor_email: Optional[str] = None
+    entity_contacts: Optional[str] = None
     internal_pursuit_owner_name: Optional[str] = None
     internal_pursuit_owner_email: Optional[str] = None
+    pursuit_partner_name: Optional[str] = None
+    pursuit_partner_email: Optional[str] = None
+    pursuit_manager_name: Optional[str] = None
+    pursuit_manager_email: Optional[str] = None
     industry: Optional[str] = None
     service_types: List[str] = []
     technologies: List[str] = []

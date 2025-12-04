@@ -219,77 +219,62 @@ When AI returns similar pursuits, display:
 - Return 5-10 most similar pursuits
 - Provide explanation for why each pursuit was recommended
 
-### Module 3: AI Outline Generation with Four-Agent Architecture
+### Module 3: AI Outline Generation with Seven-Agent Architecture
 
-**Agent-Based Workflow:**
+**Note:** This document describes original requirements. The implemented system uses a 7-agent pipeline with HITL review gates. See `CLAUDE.md` for current implementation details.
 
-**Agent 1: Metadata Extraction Agent (~15 seconds)**
-- **Role:** Extracts structured metadata from RFP documents.
-- **Model:** Claude 3.5 Sonnet.
+**Agent-Based Workflow (Updated):**
 
-**Agent 2: Gap Analysis Agent (~30 seconds)**
-- **Inputs:** RFP requirements + selected past pursuits + **additional reference documents** + **pursuit metadata** + **proposal outline/framework (optional)**
+**Agent 1: Metadata Extraction Agent (~15-30 seconds)**
+- **Role:** Extracts structured metadata from RFP documents
+- **Model:** Claude Sonnet 4.5
+- **HITL:** Human review and correction of extracted metadata
+
+**Agent 2: Team Composition Agent (~30-60 seconds)**
+- **Role:** Recommends team composition based on pursuit requirements
+- **Model:** Claude Sonnet 4.5
+- **Features:** Candidate matching, availability calculation
+- **HITL:** Human selection and override of team recommendations
+
+**Agent 3: Similar Pursuit Identification Agent (~15-30 seconds)**
+- **Role:** Finds relevant past pursuits using vector similarity + weighted scoring
+- **Model:** Claude Sonnet 4.5
+- **Features:** Granular content selection (slides/sections)
+- **HITL:** Human selection of which content to include
+
+**Agent 4: Gap Analysis Agent (~30 seconds)**
+- **Inputs:** RFP requirements + selected past pursuits + additional reference documents + pursuit metadata + proposal outline/framework (optional)
 - **Process:**
   - Parse RFP requirements (deliverables, evaluation criteria, themes)
-  - **If user provided outline/framework:** Map requirements to specified sections
-  - Deep analysis of past pursuit content
-  - **Analyze additional reference documents for relevant content**
-  - **Use metadata for context:** industry, service types, technologies, geography
-  - Map past pursuit content + additional reference content to RFP requirements (coverage matrix)
-  - **If outline/framework provided:** Identify which sections need content vs. which are covered
+  - Map past pursuit content to RFP requirements (coverage matrix)
   - Identify gaps (uncovered requirements or sections)
-  - Prioritize gaps by RFP emphasis and outline structure
-  - **Generate metadata-aware research queries** (e.g., "Healthcare data migration Azure" not "data migration")
-  - **Reduce research queries for gaps already covered by additional references**
-- **Output:** Gap Analysis Report (coverage matrix including additional references, gaps list, targeted queries, **section-level gap analysis if outline provided**)
+  - Generate metadata-aware research queries
+- **Output:** Gap Analysis Report (coverage matrix, gaps list, targeted queries)
+- **HITL:** Human review and prioritization of gaps
 
-**Agent 3: Web Research Agent (~60 seconds)**
-- **Inputs:** Gap Analysis Report + **pursuit metadata**
-- **Process:**
-  - Execute web searches for each gap using targeted queries
-  - **Filter results by metadata:**
-    - Industry-specific sources (healthcare publications for Healthcare)
-    - Technology-specific docs (Azure docs for Azure pursuits)
-    - Service-specific best practices (Risk methodologies for Risk)
-  - Validate source relevance and credibility
-  - Extract key information per gap
-  - **Prioritize sources matching metadata** (industry + capability + technology)
-- **Output:** Web Research Findings (findings per gap, citations, relevance scores)
+**Agent 5: Research Agent (~120 seconds)**
+- **Role:** Web + Arxiv research for identified gaps
+- **Model:** Claude Sonnet 4.5
+- **Features:** Claude API web search (not Brave), Arxiv MCP integration
+- **HITL:** Human review and selection of research findings
 
-**Agent 4: Synthesis Agent (~90 seconds)**
-- **Inputs:** RFP requirements + past pursuits + **additional reference documents** + web research + gap analysis + **pursuit metadata** + **proposal outline/framework (optional)**
-- **Process:**
-  - Synthesize content from all sources (past pursuits + additional references + web research)
-  - **If outline/framework provided:** Generate content following the specified section structure
-  - **If no outline provided:** Generate structure based on RFP requirements
-  - Ensure 100% requirement coverage
-  - Add citations for all content
-  - **Apply metadata context:**
-    - Use industry-specific terminology
-    - Reference appropriate technologies
-    - Emphasize relevant service capabilities
-  - **Ensure all specified sections populated** (if outline provided)
-  - **NO HALLUCINATION POLICY:**
-    - **ONLY use information from past pursuits, additional reference documents, or web research findings**
-    - **If no information available for a requirement or section, mark as [GAP: Needs content]**
-    - **Do NOT generate fictional case studies, statistics, or methodologies**
-    - **Include placeholder text explaining what information is needed**
-  - Validate completeness
-- **Output:** Comprehensive outline with citations (including additional reference citations) and **explicit gap markers** where information is unavailable (**structured per user's framework if provided**)
+**Agent 6: Synthesis Agent (~60-90 seconds)**
+- **Inputs:** All previous outputs + research findings
+- **Process:** Synthesize outline with citations from all sources
+- **NO HALLUCINATION POLICY:** Mark unknown content as `[GAP: Needs content]`
+- **HITL:** Direct editing, chatbot refinement, upload new references
+- **CRITICAL GATE:** Both PM and PP must approve before document generation
 
-**Citation types:**
-- Past pursuit citations (with pursuit name, section, page)
-- **Additional reference citations (with filename, section, page)**
-- Web citations (with URL, source title, access date, **metadata relevance score**)
-- Synthesized citations (multiple sources combined)
+**Agent 7: Document Generation Agent (~30-60 seconds)**
+- **Role:** Generate final .pptx or .docx from approved outline
+- **Features:** Claude Agent Skills for document formatting
+- **HITL:** Final review before delivery
 
-**Metadata Usage Throughout:**
-- Gap analysis understands pursuit context (Healthcare + Engineering + Azure)
-- Research queries tailored to metadata (industry + service + technology)
-- Web sources filtered and prioritized by metadata match
-- Synthesis uses metadata-appropriate language and emphasis
+**Validation Agents:**
+- **Mode A (Claude Haiku):** Stage-level validation before/after HITL
+- **Mode B (GPT-4o):** Comprehensive final validation
 
-**Generation time target:** 3 minutes total (30s + 60s + 90s)
+**Total Pipeline: ~15 minutes** (excluding HITL review time)
 
 ### 4.4 No-Hallucination Policy
 
@@ -562,13 +547,13 @@ Users can request:
 
 ### 10.2 AI Services
 - **LLM:** Anthropic Claude API (user's Max subscription)
-  - Claude 3.5 Sonnet for outline generation, refinement, deep research
+  - Claude Sonnet 4.5 for outline generation, refinement, deep research
   - Claude 3 Haiku for simple tasks (metadata extraction)
 - **Document Parsing/OCR:** Required for extracting information from RFPs and past pursuits
 - **Vector Database:** ChromaDB (Semantic Search) capabilities
 - **Web Search/Research:** Required for AI to conduct web research
   - Option 1: Claude's web search capabilities (if available)
-  - Option 2: Integration with search API (e.g., Brave Search API, SerpAPI)
+  - Option 2: Claude API web search (built-in to Claude)
   - Option 3: Web scraping with appropriate rate limiting
   - Must handle: search queries, result parsing, URL fetching, content extraction
 

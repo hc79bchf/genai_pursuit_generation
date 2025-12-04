@@ -1,59 +1,185 @@
 """
-Research Agent - Performs web searches and extracts relevant information
+Research Agent - Conducts web research using Claude's research capabilities
 
-This agent takes search queries from the Gap Analysis and uses the Brave Search API
-to find relevant information, then extracts and summarizes the findings using Claude.
+This agent takes confirmed gaps and the deep research prompt from Gap Analysis,
+then uses Claude's web search tool to conduct comprehensive research
+and generate actionable insights for the RFP response.
+
+Research Methods:
+1. Claude Web Search Tool (web_search_20250305) - For web searches
+2. arXiv MCP Server - For academic paper searches
 """
 
+import os
 import logging
-import asyncio
+import time
 import json
+import re
+import asyncio
 from typing import List, Dict, Any, Optional
-import aiohttp
+from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
+from anthropic import AsyncAnthropic
 from app.core.config import settings
 from app.services.ai_service.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
 
-class SearchResult(BaseModel):
-    """Single search result with extracted information"""
-    query: str = Field(description="The original search query")
-    url: str = Field(description="URL of the source")
-    title: str = Field(description="Title of the source")
-    snippet: str = Field(description="Brief snippet from the source")
-    extracted_info: str = Field(description="Relevant information extracted from this source")
-    relevance_score: float = Field(description="Relevance score (0-1)", ge=0, le=1)
+# Configuration Constants
+MODEL_NAME = "claude-sonnet-4-5-20250929"
+MAX_TOKENS = 8192
+MAX_SEARCH_RESULTS_PER_GAP = 5
+MAX_ARXIV_RESULTS_PER_GAP = 3
+MAX_RESEARCH_TIME_MS = 120000  # 120 seconds
+ARXIV_SEARCH_TIMEOUT_MS = 30000  # 30 seconds
+
+# arXiv MCP Configuration
+ARXIV_MCP_CONFIG = {
+    "command": "uv",
+    "args": ["tool", "run", "arxiv-mcp-server"],
+}
+
+
+def get_arxiv_storage_path() -> str:
+    """Get the storage path for arxiv papers."""
+    return os.getenv("ARXIV_STORAGE_PATH", os.path.expanduser("~/.arxiv-mcp-server/papers"))
+
+
+# Industry to arXiv category mapping
+INDUSTRY_ARXIV_CATEGORIES = {
+    "Healthcare": ["cs.AI", "cs.LG", "cs.CL", "q-bio.QM"],
+    "Financial Services": ["cs.AI", "cs.LG", "q-fin.ST", "q-fin.RM", "q-fin.CP"],
+    "Technology": ["cs.AI", "cs.LG", "cs.SE", "cs.DC", "cs.NI"],
+    "Manufacturing": ["cs.AI", "cs.RO", "cs.SY", "eess.SY"],
+    "Government": ["cs.AI", "cs.CY", "cs.CR"],
+    "Energy": ["cs.AI", "cs.SY", "eess.SY", "physics.soc-ph"],
+    "Retail": ["cs.AI", "cs.LG", "cs.IR", "stat.ML"],
+}
+
+# Technology to arXiv category mapping
+TECHNOLOGY_ARXIV_CATEGORIES = {
+    "AI/ML": ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "stat.ML"],
+    "Machine Learning": ["cs.LG", "stat.ML", "cs.AI"],
+    "Natural Language Processing": ["cs.CL", "cs.AI", "cs.LG"],
+    "Cloud": ["cs.DC", "cs.NI", "cs.SE"],
+    "DevOps": ["cs.SE", "cs.DC"],
+    "Cybersecurity": ["cs.CR", "cs.AI"],
+    "Data Analytics": ["cs.DB", "cs.LG", "stat.ML"],
+    "Blockchain": ["cs.CR", "cs.DC"],
+}
+
+DEFAULT_ARXIV_CATEGORIES = ["cs.AI", "cs.LG", "cs.SE"]
+
+
+class ResearchFinding(BaseModel):
+    """Research finding for a single gap"""
+    gap: str = Field(description="The gap being addressed")
+    research_area: str = Field(description="The area of research conducted")
+    findings: List[Dict[str, Any]] = Field(description="List of findings with content and confidence")
+    sources: List[Dict[str, Any]] = Field(default_factory=list, description="Sources used")
+    recommendations: List[str] = Field(default_factory=list, description="Actionable recommendations")
+    confidence: float = Field(description="Overall confidence score (0-1)", ge=0, le=1)
 
 
 class ResearchResult(BaseModel):
-    """Aggregated research results for all queries"""
-    query: str = Field(description="The original search query")
-    results: List[SearchResult] = Field(description="List of search results for this query")
-    summary: str = Field(description="Summary of findings for this query")
-
-
-class ResearchAgentResult(BaseModel):
     """Complete research agent output"""
-    research_results: List[ResearchResult] = Field(description="Research results for each query")
-    overall_summary: str = Field(description="Overall summary of all research findings")
+    findings: List[ResearchFinding] = Field(description="Research findings for each gap")
+    overall_summary: str = Field(description="Executive summary of all research")
+    key_insights: List[str] = Field(default_factory=list, description="Key insights discovered")
+    action_items: List[str] = Field(default_factory=list, description="Prioritized action items")
+    total_sources_evaluated: int = Field(default=0)
+    total_sources_used: int = Field(default=0)
+    total_web_sources: int = Field(default=0)
+    total_academic_sources: int = Field(default=0)
+    processing_time_ms: int = Field(description="Processing time in milliseconds")
+
+
+# Research prompt that guides Claude's web search
+RESEARCH_SYSTEM_PROMPT = """You are an expert research analyst conducting web research for RFP proposal responses.
+
+Your task is to search the web and academic sources to find relevant, accurate information that addresses the identified gaps.
+
+IMPORTANT GUIDELINES:
+1. Use the web search tool to find current, authoritative information
+2. Focus on industry-specific sources, official documentation, and best practices
+3. Prioritize information from reputable domains (.gov, .edu, major tech companies, industry publications)
+4. Extract specific facts, statistics, methodologies, and case studies
+5. Always cite your sources with URLs
+6. Assess the relevance and confidence of each finding
+7. Generate actionable recommendations based on your research
+8. If you cannot find relevant information, indicate this clearly
+
+Your response must be valid JSON matching the specified structure."""
+
+
+RESEARCH_PROMPT_TEMPLATE = """## Research Task
+
+### Pursuit Context
+- **Client:** {entity_name}
+- **Industry:** {industry}
+- **Services Required:** {service_types}
+- **Technologies:** {technologies}
+
+### Deep Research Guidance
+{deep_research_prompt}
+
+### Gaps to Research
+{gaps_list}
+
+### Instructions
+For each gap:
+1. Use the web search tool to find relevant information
+2. Search for industry best practices, case studies, and authoritative sources
+3. Extract key findings that address the gap
+4. Provide specific, actionable recommendations
+
+### Response Format
+Return a JSON object with this structure:
+{{
+    "findings": [
+        {{
+            "gap": "The specific gap being addressed",
+            "research_area": "Primary area of research",
+            "findings": [
+                {{
+                    "content": "Specific finding or insight from web search",
+                    "source_url": "https://example.com/source",
+                    "source_title": "Title of the source",
+                    "relevance": "How this addresses the gap",
+                    "confidence": 0.85
+                }}
+            ],
+            "recommendations": [
+                "Specific actionable recommendation based on research"
+            ],
+            "confidence": 0.8
+        }}
+    ],
+    "overall_summary": "Executive summary of research findings (3-4 sentences)",
+    "key_insights": ["Key insight 1", "Key insight 2"],
+    "action_items": ["Prioritized action item 1", "Prioritized action item 2"]
+}}
+
+Search the web thoroughly for each gap before responding."""
 
 
 class ResearchAgent:
     """
-    Research Agent that performs web searches and extracts relevant information
+    Research Agent that conducts web research using Claude's capabilities.
 
     Uses:
-    - Brave Search API for web search
-    - Claude Haiku for content extraction and summarization
+    - Claude's web search tool (web_search_20250305) for live web searches
+    - arXiv MCP Server for academic paper searches
+    - Deep research prompt to guide search focus
+
+    The agent performs actual web searches, not just uses existing knowledge.
     """
 
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
-        self.brave_api_key = settings.BRAVE_API_KEY
-        self.brave_search_url = "https://api.search.brave.com/res/v1/web/search"
+        self.client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     async def research(
         self,
@@ -63,312 +189,389 @@ class ResearchAgent:
         max_results_per_query: int = 5
     ) -> Dict[str, Any]:
         """
-        Perform research using search queries from gap analysis
+        Conduct research using Claude's web search and arXiv.
 
         Args:
-            search_queries: List of search queries to research
-            pursuit_context: Context about the pursuit (metadata)
-            user_id: User ID for memory storage
-            max_results_per_query: Max number of results to process per query
+            search_queries: List of search queries (gap descriptions)
+            pursuit_context: Context including deep_research_prompt, metadata
+            user_id: User ID for tracking
+            max_results_per_query: Max results per query
 
         Returns:
-            Dict containing research results
+            Dict containing research findings, sources, summary, and recommendations
         """
-        logger.info(f"Starting research for {len(search_queries)} queries")
+        start_time = time.time()
 
-        all_research_results = []
+        logger.info(f"Starting research with web search for {len(search_queries)} gaps")
 
-        for i, query in enumerate(search_queries):
-            logger.info(f"Researching query {i+1}/{len(search_queries)}: {query}")
+        # Extract context
+        entity_name = pursuit_context.get('entity_name', 'Unknown Client')
+        industry = pursuit_context.get('industry', 'Not specified')
+        service_types = pursuit_context.get('service_types', [])
+        technologies = pursuit_context.get('technologies', [])
+        deep_research_prompt = pursuit_context.get('deep_research_prompt', '')
 
-            # Respect Brave API rate limits (1 request per second for free tier)
-            # Add delay between requests (except for the first one)
-            if i > 0:
-                logger.info(f"Waiting 1.5 seconds to respect Brave API rate limits...")
-                await asyncio.sleep(1.5)
+        # If no deep research prompt, create a default one
+        if not deep_research_prompt:
+            deep_research_prompt = self._generate_default_prompt(search_queries, pursuit_context)
 
-            # Perform web search
-            search_results = await self._brave_search(query, count=max_results_per_query)
+        # Format gaps list
+        gaps_list = self._format_gaps_list(search_queries)
 
-            if not search_results:
-                logger.warning(f"No search results found for query: {query}")
-                all_research_results.append({
-                    "query": query,
-                    "results": [],
-                    "summary": "No relevant information found for this query."
-                })
-                continue
-
-            # Extract and analyze each result
-            extracted_results = []
-            for result in search_results:
-                extracted_info = await self._extract_relevant_info(
-                    query=query,
-                    title=result.get("title", ""),
-                    snippet=result.get("description", ""),
-                    url=result.get("url", ""),
-                    pursuit_context=pursuit_context
-                )
-
-                if extracted_info:
-                    extracted_results.append({
-                        "query": query,
-                        "url": result.get("url", ""),
-                        "title": result.get("title", ""),
-                        "snippet": result.get("description", ""),
-                        "extracted_info": extracted_info["content"],
-                        "relevance_score": extracted_info["relevance_score"]
-                    })
-
-            # Summarize findings for this query
-            query_summary = await self._summarize_query_findings(
-                query=query,
-                results=extracted_results,
-                pursuit_context=pursuit_context
-            )
-
-            all_research_results.append({
-                "query": query,
-                "results": extracted_results,
-                "summary": query_summary
-            })
-
-        # Generate overall summary
-        overall_summary = await self._generate_overall_summary(
-            research_results=all_research_results,
-            pursuit_context=pursuit_context
+        # Build the research prompt
+        prompt = RESEARCH_PROMPT_TEMPLATE.format(
+            entity_name=entity_name,
+            industry=industry,
+            service_types=', '.join(service_types) if service_types else 'Not specified',
+            technologies=', '.join(technologies) if technologies else 'Not specified',
+            deep_research_prompt=deep_research_prompt,
+            gaps_list=gaps_list
         )
 
-        result = {
-            "research_results": all_research_results,
-            "overall_summary": overall_summary
-        }
+        # Run web search and arXiv search in parallel
+        web_task = asyncio.create_task(
+            self._execute_web_search_research(prompt, search_queries, pursuit_context)
+        )
+        arxiv_task = asyncio.create_task(
+            self._execute_arxiv_searches(search_queries, pursuit_context)
+        )
 
-        logger.info(f"Research complete. Found {sum(len(r['results']) for r in all_research_results)} total results")
+        # Wait for both
+        try:
+            web_results = await web_task
+        except Exception as e:
+            logger.error(f"Web search failed: {e}")
+            web_results = {"findings": [], "overall_summary": "", "key_insights": [], "action_items": []}
+
+        try:
+            arxiv_results = await arxiv_task
+        except Exception as e:
+            logger.error(f"arXiv search failed: {e}")
+            arxiv_results = {}
+
+        # Merge results
+        result = self._merge_results(web_results, arxiv_results, search_queries)
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        result["processing_time_ms"] = processing_time_ms
+
+        # Convert to legacy format for backward compatibility
+        result["research_results"] = self._convert_to_legacy_format(result)
+
+        logger.info(f"Research complete in {processing_time_ms}ms. "
+                   f"Found {result.get('total_sources_used', 0)} sources.")
 
         return result
 
-    async def _brave_search(self, query: str, count: int = 5) -> List[Dict[str, Any]]:
-        """
-        Perform a web search using Brave Search API
-
-        Args:
-            query: Search query
-            count: Number of results to return
-
-        Returns:
-            List of search results
-        """
-        if not self.brave_api_key:
-            logger.error("BRAVE_API_KEY not configured")
-            return []
-
-        headers = {
-            "Accept": "application/json",
-            "X-Subscription-Token": self.brave_api_key
-        }
-
-        params = {
-            "q": query,
-            "count": count,
-            "search_lang": "en",
-            "safesearch": "moderate"
-        }
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.brave_search_url,
-                    headers=headers,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results = data.get("web", {}).get("results", [])
-                        logger.info(f"Brave search returned {len(results)} results for: {query}")
-                        return results
-                    elif response.status == 429:
-                        error_data = await response.json()
-                        logger.error(f"Brave API rate limited for query: {query}")
-                        logger.error(f"Rate limit details: {error_data.get('error', {}).get('meta', {})}")
-                        return []
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Brave search failed with status {response.status}: {error_text}")
-                        return []
-        except Exception as e:
-            logger.error(f"Error performing Brave search: {e}", exc_info=True)
-            return []
-
-    async def _extract_relevant_info(
+    async def _execute_web_search_research(
         self,
-        query: str,
-        title: str,
-        snippet: str,
-        url: str,
+        prompt: str,
+        search_queries: List[str],
         pursuit_context: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Extract relevant information from a search result
-
-        Args:
-            query: Original search query
-            title: Result title
-            snippet: Result snippet
-            url: Result URL
-            pursuit_context: Pursuit metadata for context
-
-        Returns:
-            Dict with extracted content and relevance score
-        """
-        prompt = f"""You are analyzing a web search result to extract information relevant to an RFP response.
-
-**Search Query:** {query}
-
-**Pursuit Context:**
-- Client: {pursuit_context.get('entity_name', 'Unknown')}
-- Industry: {pursuit_context.get('industry', 'Unknown')}
-- Services: {', '.join(pursuit_context.get('service_types', []))}
-- Technologies: {', '.join(pursuit_context.get('technologies', []))}
-
-**Search Result:**
-Title: {title}
-URL: {url}
-Snippet: {snippet}
-
-**Task:**
-1. Extract key information from this result that would be useful for the RFP response
-2. Focus on facts, statistics, best practices, or relevant case studies
-3. Assess relevance (0-1 scale) based on how useful this is for the proposal
-
-Provide your response as valid JSON with:
-- "content": The extracted relevant information (2-3 sentences max)
-- "relevance_score": Float between 0 and 1
-
-If the result is not relevant, set relevance_score to 0 and content to empty string.
-
-Return ONLY the JSON object, no other text.
-"""
-
+    ) -> Dict[str, Any]:
+        """Execute research using Claude's web search tool."""
         try:
-            response_text = await self.llm_service.generate_text(
-                prompt=prompt,
-                system="You are a helpful assistant that extracts relevant information from search results. Always respond with valid JSON.",
-                model=settings.LLM_MODEL_SMART  # Use Haiku for speed
+            # Call Claude with web search tool enabled
+            response = await self.client.messages.create(
+                model=MODEL_NAME,
+                max_tokens=MAX_TOKENS,
+                system=RESEARCH_SYSTEM_PROMPT,
+                tools=[{
+                    "type": "web_search_20250305",
+                    "name": "web_search",
+                    "max_uses": MAX_SEARCH_RESULTS_PER_GAP * len(search_queries)
+                }],
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            # Parse JSON response
-            result = json.loads(response_text)
+            # Extract the response
+            response_text = ""
+            sources_found = []
+
+            for block in response.content:
+                if hasattr(block, 'type'):
+                    if block.type == 'text':
+                        response_text = block.text
+                    elif block.type == 'web_search_tool_result':
+                        # Extract sources from web search results
+                        if hasattr(block, 'content'):
+                            for content_block in block.content:
+                                if hasattr(content_block, 'type') and content_block.type == 'web_search_result':
+                                    sources_found.append({
+                                        "url": getattr(content_block, 'url', ''),
+                                        "title": getattr(content_block, 'title', ''),
+                                        "snippet": getattr(content_block, 'snippet', getattr(content_block, 'page_content', '')),
+                                        "source_type": "web"
+                                    })
+
+            # Parse the JSON response
+            result = self._parse_research_response(response_text)
+
+            # Add source counts
+            result["total_web_sources"] = len(sources_found)
+            result["total_sources_evaluated"] = len(sources_found)
+
+            # Attach sources to findings
+            self._attach_sources_to_findings(result, sources_found)
+
+            logger.info(f"Web search found {len(sources_found)} sources")
+
             return result
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing JSON from LLM response: {e}")
-            logger.error(f"Response was: {response_text}")
-            return None
+
         except Exception as e:
-            logger.error(f"Error extracting info from result: {e}", exc_info=True)
-            return None
+            logger.error(f"Web search research failed: {e}", exc_info=True)
+            return {
+                "findings": [],
+                "overall_summary": f"Web search could not be completed: {str(e)}",
+                "key_insights": [],
+                "action_items": [],
+                "total_web_sources": 0
+            }
 
-    async def _summarize_query_findings(
+    async def _execute_arxiv_searches(
         self,
-        query: str,
-        results: List[Dict[str, Any]],
+        search_queries: List[str],
         pursuit_context: Dict[str, Any]
-    ) -> str:
-        """
-        Summarize all findings for a single search query
+    ) -> Dict[str, List[Dict]]:
+        """Execute arXiv searches for academic papers."""
+        results = {}
+        categories = self._get_arxiv_categories(pursuit_context)
 
-        Args:
-            query: Original search query
-            results: List of extracted results
-            pursuit_context: Pursuit metadata
+        for query in search_queries:
+            results[query] = []
+            try:
+                papers = await self._search_arxiv(query, categories)
+                results[query] = papers
+                logger.debug(f"arXiv found {len(papers)} papers for: {query[:50]}")
+            except Exception as e:
+                logger.warning(f"arXiv search failed for query: {query[:50]}, error: {e}")
 
-        Returns:
-            Summary text
-        """
-        if not results:
-            return "No relevant information found for this query."
+        return results
 
-        # Filter results by relevance score
-        relevant_results = [r for r in results if r.get("relevance_score", 0) > 0.3]
+    async def _search_arxiv(self, query: str, categories: List[str]) -> List[Dict]:
+        """Search arXiv for papers matching the query."""
+        try:
+            # Try to use MCP if available
+            mcp_context = await self._get_arxiv_mcp_session()
+            async with mcp_context as (read, write):
+                from mcp import ClientSession
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "search_papers",
+                        arguments={
+                            "query": query,
+                            "max_results": MAX_ARXIV_RESULTS_PER_GAP,
+                            "categories": categories,
+                        }
+                    )
 
-        if not relevant_results:
-            return "No highly relevant information found for this query."
+                    papers = []
+                    if hasattr(result, 'content'):
+                        for content in result.content:
+                            if hasattr(content, 'text'):
+                                try:
+                                    paper_data = json.loads(content.text)
+                                    if isinstance(paper_data, list):
+                                        papers.extend(paper_data)
+                                    elif isinstance(paper_data, dict):
+                                        papers.append(paper_data)
+                                except json.JSONDecodeError:
+                                    continue
 
-        results_text = "\n\n".join([
-            f"Source: {r['title']}\nURL: {r['url']}\nInfo: {r['extracted_info']}"
-            for r in relevant_results
+                    return [self._parse_arxiv_result(p) for p in papers[:MAX_ARXIV_RESULTS_PER_GAP]]
+
+        except Exception as e:
+            logger.warning(f"arXiv MCP unavailable: {e}")
+            return []
+
+    async def _get_arxiv_mcp_session(self):
+        """Create MCP session for arXiv server."""
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        storage_path = get_arxiv_storage_path()
+        server_params = StdioServerParameters(
+            command=ARXIV_MCP_CONFIG["command"],
+            args=ARXIV_MCP_CONFIG["args"] + ["--storage-path", storage_path],
+        )
+        return stdio_client(server_params)
+
+    def _parse_arxiv_result(self, result: Dict) -> Dict:
+        """Parse arXiv paper result into standard format."""
+        paper_id = result.get("paper_id", result.get("id", ""))
+        return {
+            "url": f"https://arxiv.org/abs/{paper_id}",
+            "title": result.get("title", "Untitled Paper"),
+            "snippet": result.get("abstract", result.get("summary", ""))[:500],
+            "arxiv_id": paper_id,
+            "authors": result.get("authors", []),
+            "published": result.get("published", ""),
+            "source_type": "academic"
+        }
+
+    def _get_arxiv_categories(self, pursuit_context: Dict) -> List[str]:
+        """Get relevant arXiv categories based on pursuit context."""
+        categories = set()
+
+        industry = pursuit_context.get("industry", "")
+        if industry in INDUSTRY_ARXIV_CATEGORIES:
+            categories.update(INDUSTRY_ARXIV_CATEGORIES[industry])
+
+        technologies = pursuit_context.get("technologies", [])
+        for tech in technologies:
+            if tech in TECHNOLOGY_ARXIV_CATEGORIES:
+                categories.update(TECHNOLOGY_ARXIV_CATEGORIES[tech])
+            for key, cats in TECHNOLOGY_ARXIV_CATEGORIES.items():
+                if key.lower() in tech.lower() or tech.lower() in key.lower():
+                    categories.update(cats)
+
+        return list(categories) if categories else DEFAULT_ARXIV_CATEGORIES
+
+    def _merge_results(
+        self,
+        web_results: Dict,
+        arxiv_results: Dict[str, List[Dict]],
+        search_queries: List[str]
+    ) -> Dict[str, Any]:
+        """Merge web search and arXiv results."""
+        result = web_results.copy()
+
+        # Count academic sources
+        total_academic = sum(len(papers) for papers in arxiv_results.values())
+        result["total_academic_sources"] = total_academic
+        result["total_sources_used"] = result.get("total_web_sources", 0) + total_academic
+        result["total_sources_evaluated"] = result.get("total_sources_evaluated", 0) + total_academic
+
+        # Add arXiv sources to relevant findings
+        for finding in result.get("findings", []):
+            gap = finding.get("gap", "")
+            # Find matching arXiv results
+            for query, papers in arxiv_results.items():
+                if query.lower() in gap.lower() or gap.lower() in query.lower():
+                    for paper in papers:
+                        finding.setdefault("sources", []).append(paper)
+
+        return result
+
+    def _attach_sources_to_findings(self, result: Dict, sources: List[Dict]):
+        """Attach discovered sources to relevant findings."""
+        findings = result.get("findings", [])
+        if not findings or not sources:
+            return
+
+        # Distribute sources across findings
+        sources_per_finding = max(1, len(sources) // len(findings))
+        for i, finding in enumerate(findings):
+            start_idx = i * sources_per_finding
+            end_idx = start_idx + sources_per_finding
+            finding_sources = sources[start_idx:end_idx]
+            finding.setdefault("sources", []).extend(finding_sources)
+
+    def _generate_default_prompt(self, search_queries: List[str], pursuit_context: Dict[str, Any]) -> str:
+        """Generate a default research prompt if none provided."""
+        industry = pursuit_context.get('industry', 'the relevant industry')
+
+        prompt_parts = [
+            f"Research the following areas for a {industry} client proposal:",
+            ""
+        ]
+
+        for i, query in enumerate(search_queries, 1):
+            prompt_parts.append(f"{i}. {query}")
+
+        prompt_parts.extend([
+            "",
+            "For each area:",
+            "- Search for industry best practices and standards",
+            "- Find relevant case studies and success stories",
+            "- Identify compliance and regulatory requirements",
+            "- Recommend specific implementation approaches"
         ])
 
-        prompt = f"""Summarize the following research findings for the query: "{query}"
+        return "\n".join(prompt_parts)
 
-**Pursuit Context:**
-- Client: {pursuit_context.get('entity_name', 'Unknown')}
-- Industry: {pursuit_context.get('industry', 'Unknown')}
+    def _format_gaps_list(self, search_queries: List[str]) -> str:
+        """Format the gaps/queries as a numbered list."""
+        if not search_queries:
+            return "No specific gaps identified."
 
-**Research Findings:**
-{results_text}
+        formatted = []
+        for i, query in enumerate(search_queries, 1):
+            formatted.append(f"{i}. {query}")
 
-**Task:**
-Provide a concise summary (3-4 sentences) of the key findings that would be useful for the RFP response.
-Focus on actionable insights and relevant information.
-"""
+        return "\n".join(formatted)
 
-        try:
-            summary = await self.llm_service.generate_text(
-                prompt=prompt,
-                model=settings.LLM_MODEL_SMART
-            )
-            return summary
-        except Exception as e:
-            logger.error(f"Error summarizing query findings: {e}", exc_info=True)
-            return "Error generating summary."
+    def _parse_research_response(self, response_text: str) -> Dict[str, Any]:
+        """Parse the LLM response to extract research findings."""
+        # Try to find JSON in the response
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
 
-    async def _generate_overall_summary(
-        self,
-        research_results: List[Dict[str, Any]],
-        pursuit_context: Dict[str, Any]
-    ) -> str:
-        """
-        Generate an overall summary of all research findings
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group())
+                logger.debug(f"Parsed research response with {len(parsed.get('findings', []))} findings")
+                return parsed
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON parse error: {e}")
+                # Try to fix common JSON issues
+                cleaned = json_match.group()
+                cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
+                try:
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    pass
 
-        Args:
-            research_results: All research results
-            pursuit_context: Pursuit metadata
+        logger.warning("Could not parse research response as JSON")
+        return {
+            "findings": [],
+            "overall_summary": response_text[:500] if response_text else "No summary available",
+            "key_insights": [],
+            "action_items": []
+        }
 
-        Returns:
-            Overall summary text
-        """
-        summaries = "\n\n".join([
-            f"Query: {r['query']}\nFindings: {r['summary']}"
-            for r in research_results
-        ])
+    def _convert_to_legacy_format(self, research_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Convert research format to legacy format for backward compatibility."""
+        legacy_results = []
 
-        prompt = f"""Provide an executive summary of the following research findings for an RFP response.
+        for finding in research_data.get("findings", []):
+            legacy_result = {
+                "query": finding.get("gap", ""),
+                "results": [],
+                "summary": ""
+            }
 
-**Pursuit Context:**
-- Client: {pursuit_context.get('entity_name', 'Unknown')}
-- Industry: {pursuit_context.get('industry', 'Unknown')}
-- Services: {', '.join(pursuit_context.get('service_types', []))}
+            # Convert findings to results
+            for f in finding.get("findings", []):
+                legacy_result["results"].append({
+                    "query": finding.get("gap", ""),
+                    "url": f.get("source_url", ""),
+                    "title": f.get("source_title", finding.get("research_area", "Research Finding")),
+                    "snippet": f.get("relevance", ""),
+                    "extracted_info": f.get("content", ""),
+                    "relevance_score": f.get("confidence", 0.5),
+                    "source_type": "web"
+                })
 
-**Research Summaries:**
-{summaries}
+            # Add sources from finding
+            for source in finding.get("sources", []):
+                legacy_result["results"].append({
+                    "query": finding.get("gap", ""),
+                    "url": source.get("url", ""),
+                    "title": source.get("title", ""),
+                    "snippet": source.get("snippet", ""),
+                    "extracted_info": source.get("snippet", ""),
+                    "relevance_score": 0.7,
+                    "source_type": source.get("source_type", "web")
+                })
 
-**Task:**
-Create a concise executive summary (4-5 sentences) highlighting:
-1. Key insights discovered through research
-2. How these findings address the gaps in the proposal
-3. Main recommendations for the proposal team
+            # Build summary
+            recommendations = finding.get("recommendations", [])
+            if recommendations:
+                legacy_result["summary"] = "Recommendations: " + "; ".join(recommendations[:3])
+            else:
+                legacy_result["summary"] = f"Research conducted on: {finding.get('research_area', 'N/A')}"
 
-Focus on actionable insights.
-"""
+            legacy_results.append(legacy_result)
 
-        try:
-            summary = await self.llm_service.generate_text(
-                prompt=prompt,
-                model=settings.LLM_MODEL_SMART
-            )
-            return summary
-        except Exception as e:
-            logger.error(f"Error generating overall summary: {e}", exc_info=True)
-            return "Error generating overall summary."
+        return legacy_results

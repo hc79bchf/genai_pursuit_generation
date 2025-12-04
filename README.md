@@ -12,12 +12,12 @@
 The Pursuit Response Platform is an AI-powered system that enables professional services firms to rapidly and effectively respond to RFPs by leveraging AI-powered content generation, historical pursuit data, and collaborative workflows.
 
 ### Key Capabilities
-- 🤖 **AI-Powered Outline Generation** - Four-agent system (Metadata → Gap Analysis → Research → Synthesis)
+- 🤖 **AI-Powered Outline Generation** - 7-agent pipeline with HITL review (Metadata → Team → Similar Pursuit → Gap → Research → Synthesis → Document)
 - 📄 **Smart Metadata Extraction** - Automatically extracts client details, objectives, requirements, and sources from RFPs
 - 🔍 **Semantic Search** - Find similar past pursuits using vector embeddings
 - 💬 **Iterative Refinement** - Chat-based and direct editing of proposals
 - 📄 **Document Generation** - Export to DOCX and PPTX formats
-- ✅ **Review Workflow** - Multi-reviewer approval process
+- ✅ **Review Workflow** - Multi-reviewer approval process with HITL gates
 - 📊 **Analytics Dashboard** - Track win rates and performance metrics
 
 ### Business Objectives
@@ -43,11 +43,10 @@ The Pursuit Response Platform is an AI-powered system that enables professional 
 | **database-schema.md** | Database Schema (PostgreSQL + ChromaDB) | ✅ Complete |
 | **api-specification.md** | REST API Specification (FastAPI) | ✅ Complete |
 
-### Review & Alignment (2 docs)
+### Project Configuration
 | Document | Description | Status |
 |----------|-------------|--------|
-| **DOCUMENTATION_REVIEW.md** | Detailed alignment review findings | ✅ Complete |
-| **ALIGNMENT_SUMMARY.md** | Quick alignment summary | ✅ Complete |
+| **CLAUDE.md** | Claude Code project instructions | ✅ Complete |
 
 ---
 
@@ -72,9 +71,10 @@ The Pursuit Response Platform is an AI-powered system that enables professional 
 - **Migrations:** Alembic
 
 ### AI Services
-- **LLM:** Anthropic Claude 3.5 Sonnet
+- **LLM:** Anthropic Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`)
+- **Validation:** Claude Haiku (Mode A) + OpenAI GPT-4o (Mode B)
 - **Embeddings:** OpenAI text-embedding-3-small
-- **Web Research:** Brave Search API
+- **Web Research:** Claude API web search (not Brave)
 
 ### Infrastructure
 - **Containerization:** Docker + Docker Compose
@@ -106,7 +106,7 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 
 # Edit .env files with your API keys
-# Required: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRAVE_API_KEY
+# Required: ANTHROPIC_API_KEY, OPENAI_API_KEY
 
 # Start all services
 docker-compose up -d
@@ -178,7 +178,7 @@ celery -A app.tasks.celery_app worker --loglevel=info
 ### In Scope ✅
 - Pursuit creation (upload RFP or chat-based entry)
 - AI-powered similarity search (vector embeddings)
-- AI outline generation (four-agent system)
+- AI outline generation (7-agent pipeline with HITL)
 - Iterative refinement (chat + direct edit)
 - Document generation (.docx and .pptx)
 - Review and approval workflow (min 2 reviewers)
@@ -200,18 +200,26 @@ celery -A app.tasks.celery_app worker --loglevel=info
 
 ## 🏛️ System Architecture Highlights
 
-### Four-Agent AI System
+### Seven-Agent AI Pipeline with HITL
 ```
-Agent 1: Metadata Extraction (~10s)
-   ↓
-Agent 2: Gap Analysis (~30s)
-   ↓
-Agent 3: Web Research (~60s)
-   ↓
-Agent 4: Synthesis (~90s)
-   ↓
-Complete Outline with Citations
+Agent 1: Metadata Extraction (~15-30s)
+   ↓ [HITL Review]
+Agent 2: Team Composition (~30-60s)
+   ↓ [HITL Review]
+Agent 3: Similar Pursuit Identification (~15-30s)
+   ↓ [HITL Review]
+Agent 4: Gap Analysis (~30s)
+   ↓ [HITL Review]
+Agent 5: Research - Web + Arxiv (~120s)
+   ↓ [HITL Review]
+Agent 6: Synthesis (~60-90s)
+   ↓ [CRITICAL GATE: PM + PP Approval]
+Agent 7: Document Generation (~30-60s)
+   ↓ [Final Validation: GPT-4o]
+Complete .pptx or .docx Output
 ```
+
+**Total Pipeline: ~15 minutes** (excluding HITL review time)
 
 ### Data Flow
 ```
@@ -270,7 +278,7 @@ RFP Text → OpenAI Embedding → ChromaDB Query → Weighted Ranking
 | Page Load | < 2 seconds | React code splitting, Next.js optimization |
 | API Response | < 500ms | FastAPI async, connection pooling |
 | Search Results | < 30 seconds | ChromaDB HNSW index |
-| AI Outline Gen | < 3 minutes | Four agents in sequence |
+| AI Outline Gen | ~15 minutes | 7-agent pipeline with HITL |
 | Document Gen | < 4 minutes | Background Celery task |
 
 ---
@@ -301,7 +309,7 @@ RFP Text → OpenAI Embedding → ChromaDB Query → Weighted Ranking
 ### Phase 2: Core Features (Week 3-4)
 - [ ] Pursuit creation and file upload
 - [ ] Vector similarity search
-- [ ] Three-agent AI outline generation
+- [ ] 7-agent AI outline generation
 - [ ] Basic outline editor
 
 ### Phase 3: Refinement (Week 5-6)
@@ -395,8 +403,8 @@ See `technical-architecture.md` Section 9 for complete deployment guide.
 ## 📞 Support & Contact
 
 ### Documentation Issues
-- Review `DOCUMENTATION_REVIEW.md` for known issues
-- Check `ALIGNMENT_SUMMARY.md` for alignment status
+- Review `CLAUDE.md` for current implementation status
+- See session summaries in `logs/` for recent changes
 
 ### Technical Questions
 - Backend: See `technical-architecture.md` + `api-specification.md`
@@ -423,6 +431,6 @@ All documentation is complete, aligned, and verified. The project is ready to mo
 
 ---
 
-**Document Version:** 1.1
-**Last Updated:** 2025-11-23
+**Document Version:** 1.2
+**Last Updated:** 2025-12-02
 **Status:** ✅ In Active Development

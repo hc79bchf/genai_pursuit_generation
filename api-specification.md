@@ -681,7 +681,7 @@ GET /search/pursuits?q=healthcare&industry=Healthcare&quality_tagged=true&sort=c
 
 **POST** `/pursuits/{pursuit_id}/generate-outline`
 
-**Description:** Trigger AI outline generation using custom four-agent sequential workflow
+**Description:** Trigger AI outline generation using custom 7-agent sequential workflow with HITL
 
 **Request:**
 ```json

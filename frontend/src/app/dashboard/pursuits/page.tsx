@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, memo } from "react"
+import { useEffect, useState, memo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, Loader2, Search, Filter, FileText, Clock, Users, Play, Pause } from "lucide-react"
+import { Plus, Loader2, Search, FileText, Clock, Users, Play, Pause, Calendar, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { fetchApi } from "@/lib/api"
 import Link from "next/link"
@@ -10,11 +10,14 @@ import { cn } from "@/lib/utils"
 import { usePursuitStore } from "@/store/pursuitStore"
 import { PageGuide } from "@/components/PageGuide"
 import { BorderBeam } from "@/components/BorderBeam"
+import { ComboboxInput, ComboboxOption } from "@/components/ui/combobox-input"
 
 interface Pursuit {
     id: string
     entity_name: string
     internal_pursuit_owner_name: string
+    pursuit_partner_name?: string
+    pursuit_manager_name?: string
     status: string
     created_at: string
     progress?: number
@@ -111,12 +114,93 @@ const PursuitCard = memo(function PursuitCard({ pursuit, updatingId, onStatusCha
     )
 })
 
+// Debounce hook for search
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value)
+        }, delay)
+
+        return () => {
+            clearTimeout(handler)
+        }
+    }, [value, delay])
+
+    return debouncedValue
+}
+
 export default function PursuitsPage() {
     const [pursuits, setPursuits] = useState<Pursuit[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [updatingId, setUpdatingId] = useState<string | null>(null)
     const { refreshPursuitsCount } = usePursuitStore()
+
+    // Filter states
+    const [statusFilter, setStatusFilter] = useState("")
+    const [ownerFilter, setOwnerFilter] = useState("")
+    const [partnerFilter, setPartnerFilter] = useState("")
+    const [managerFilter, setManagerFilter] = useState("")
+    const [entityFilter, setEntityFilter] = useState("")
+    const [entitySearch, setEntitySearch] = useState("")
+    const [entityOptions, setEntityOptions] = useState<ComboboxOption[]>([])
+    const [entityLoading, setEntityLoading] = useState(false)
+    const [dateFrom, setDateFrom] = useState("")
+    const [dateTo, setDateTo] = useState("")
+
+    const debouncedEntitySearch = useDebounce(entitySearch, 300)
+
+    // Status options
+    const STATUS_OPTIONS = [
+        { value: "", label: "All Statuses" },
+        { value: "draft", label: "Draft" },
+        { value: "in_review", label: "In Review" },
+        { value: "ready_for_submission", label: "Ready for Submission" },
+        { value: "submitted", label: "Submitted" },
+        { value: "won", label: "Won" },
+        { value: "lost", label: "Lost" },
+        { value: "cancelled", label: "Cancelled" },
+        { value: "stale", label: "Stale" },
+    ]
+
+    // Get unique owners, partners, managers from pursuits
+    const uniqueOwners = Array.from(new Set(pursuits.map(p => p.internal_pursuit_owner_name).filter(Boolean)))
+    const uniquePartners = Array.from(new Set(pursuits.map(p => p.pursuit_partner_name).filter(Boolean)))
+    const uniqueManagers = Array.from(new Set(pursuits.map(p => p.pursuit_manager_name).filter(Boolean)))
+
+    // Fetch entity options for filter
+    useEffect(() => {
+        const fetchEntityOptions = async () => {
+            setEntityLoading(true)
+            try {
+                const response = await fetchApi(`/lookup/entities?q=${encodeURIComponent(debouncedEntitySearch)}&limit=20`)
+                setEntityOptions(response)
+            } catch (error) {
+                console.error("Failed to fetch entity options", error)
+                setEntityOptions([])
+            } finally {
+                setEntityLoading(false)
+            }
+        }
+
+        fetchEntityOptions()
+    }, [debouncedEntitySearch])
+
+    // Count active filters
+    const activeFilterCount = [statusFilter, ownerFilter, partnerFilter, managerFilter, entityFilter, dateFrom, dateTo].filter(Boolean).length
+
+    // Clear all filters
+    const clearFilters = () => {
+        setStatusFilter("")
+        setOwnerFilter("")
+        setPartnerFilter("")
+        setManagerFilter("")
+        setEntityFilter("")
+        setDateFrom("")
+        setDateTo("")
+    }
 
     const loadPursuits = async () => {
         try {
@@ -154,10 +238,46 @@ export default function PursuitsPage() {
         return !['cancelled', 'stale', 'lost'].includes(status)
     }
 
-    const filteredPursuits = pursuits.filter(p =>
-        p.entity_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.internal_pursuit_owner_name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    const filteredPursuits = pursuits.filter(p => {
+        // Text search filter
+        const matchesSearch = searchQuery === "" ||
+            p.entity_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            p.internal_pursuit_owner_name.toLowerCase().includes(searchQuery.toLowerCase())
+
+        // Status filter
+        const matchesStatus = statusFilter === "" || p.status === statusFilter
+
+        // Owner filter
+        const matchesOwner = ownerFilter === "" || p.internal_pursuit_owner_name === ownerFilter
+
+        // Partner filter
+        const matchesPartner = partnerFilter === "" || p.pursuit_partner_name === partnerFilter
+
+        // Manager filter
+        const matchesManager = managerFilter === "" || p.pursuit_manager_name === managerFilter
+
+        // Entity name filter
+        const matchesEntity = entityFilter === "" ||
+            p.entity_name.toLowerCase().includes(entityFilter.toLowerCase())
+
+        // Date range filter
+        let matchesDateRange = true
+        if (dateFrom || dateTo) {
+            const createdDate = new Date(p.created_at)
+            if (dateFrom) {
+                const fromDate = new Date(dateFrom)
+                fromDate.setHours(0, 0, 0, 0)
+                if (createdDate < fromDate) matchesDateRange = false
+            }
+            if (dateTo) {
+                const toDate = new Date(dateTo)
+                toDate.setHours(23, 59, 59, 999)
+                if (createdDate > toDate) matchesDateRange = false
+            }
+        }
+
+        return matchesSearch && matchesStatus && matchesOwner && matchesPartner && matchesManager && matchesEntity && matchesDateRange
+    })
 
     if (isLoading) {
         return (
@@ -205,21 +325,135 @@ export default function PursuitsPage() {
                 </Button>
             </div>
 
-            {/* Filters */}
-            <div className="flex items-center space-x-4 bg-white/5 p-4 rounded-xl border border-white/10">
-                <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search pursuits..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 bg-black/20 border-white/10 text-white placeholder:text-muted-foreground focus:ring-primary"
-                    />
+            {/* Search and Filters */}
+            <div className="bg-white/5 p-4 rounded-xl border border-white/10 space-y-4">
+                {/* Search Row */}
+                <div className="flex items-center gap-4">
+                    <div className="relative flex-1 max-w-md">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Search pursuits..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-10 bg-black/20 border-white/10 text-white placeholder:text-muted-foreground focus:ring-primary"
+                        />
+                    </div>
+                    {activeFilterCount > 0 && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearFilters}
+                            className="text-muted-foreground hover:text-white"
+                        >
+                            <X className="h-4 w-4 mr-1" />
+                            Clear filters ({activeFilterCount})
+                        </Button>
+                    )}
                 </div>
-                <Button variant="outline" className="border-white/10 text-muted-foreground hover:text-white hover:bg-white/5">
-                    <Filter className="mr-2 h-4 w-4" />
-                    Filter
-                </Button>
+
+                {/* Filter Dropdowns Row */}
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Status Filter */}
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className={cn(
+                            "h-9 px-3 rounded-lg border text-sm bg-black/20 focus:ring-primary focus:border-primary transition-colors",
+                            statusFilter ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                        )}
+                    >
+                        {STATUS_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+
+                    {/* Owner Filter */}
+                    <select
+                        value={ownerFilter}
+                        onChange={(e) => setOwnerFilter(e.target.value)}
+                        className={cn(
+                            "h-9 px-3 rounded-lg border text-sm bg-black/20 focus:ring-primary focus:border-primary transition-colors",
+                            ownerFilter ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                        )}
+                    >
+                        <option value="">All Owners</option>
+                        {uniqueOwners.map(owner => (
+                            <option key={owner} value={owner}>{owner}</option>
+                        ))}
+                    </select>
+
+                    {/* Partner Filter */}
+                    <select
+                        value={partnerFilter}
+                        onChange={(e) => setPartnerFilter(e.target.value)}
+                        className={cn(
+                            "h-9 px-3 rounded-lg border text-sm bg-black/20 focus:ring-primary focus:border-primary transition-colors",
+                            partnerFilter ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                        )}
+                    >
+                        <option value="">All Partners</option>
+                        {uniquePartners.map(partner => (
+                            <option key={partner} value={partner}>{partner}</option>
+                        ))}
+                    </select>
+
+                    {/* Manager Filter */}
+                    <select
+                        value={managerFilter}
+                        onChange={(e) => setManagerFilter(e.target.value)}
+                        className={cn(
+                            "h-9 px-3 rounded-lg border text-sm bg-black/20 focus:ring-primary focus:border-primary transition-colors",
+                            managerFilter ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                        )}
+                    >
+                        <option value="">All Managers</option>
+                        {uniqueManagers.map(manager => (
+                            <option key={manager} value={manager}>{manager}</option>
+                        ))}
+                    </select>
+
+                    {/* Divider */}
+                    <div className="h-6 w-px bg-white/10" />
+
+                    {/* Entity Filter */}
+                    <div className="w-48">
+                        <ComboboxInput
+                            value={entityFilter}
+                            onChange={setEntityFilter}
+                            options={entityOptions}
+                            onSearch={setEntitySearch}
+                            isLoading={entityLoading}
+                            allowCustomValue={true}
+                            placeholder="Entity..."
+                        />
+                    </div>
+
+                    {/* Date Range */}
+                    <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <Input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className={cn(
+                                "h-9 w-36 bg-black/20 text-sm",
+                                dateFrom ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                            )}
+                            placeholder="From"
+                        />
+                        <span className="text-muted-foreground text-sm">to</span>
+                        <Input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className={cn(
+                                "h-9 w-36 bg-black/20 text-sm",
+                                dateTo ? "border-primary/50 text-white" : "border-white/10 text-muted-foreground"
+                            )}
+                            placeholder="To"
+                        />
+                    </div>
+                </div>
             </div>
 
             {/* List */}

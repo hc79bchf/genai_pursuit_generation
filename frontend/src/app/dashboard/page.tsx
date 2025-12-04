@@ -1,9 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo, useCallback } from "react"
 import { motion } from "framer-motion"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Plus, Clock, Loader2, TrendingUp, Users, Target } from "lucide-react"
+import { FilterDropdown } from "@/components/ui/filter-dropdown"
+import { ComboboxInput, ComboboxOption } from "@/components/ui/combobox-input"
+import { Plus, Clock, Loader2, TrendingUp, Users, Target, Search, ChevronUp, ChevronDown, X, Upload } from "lucide-react"
 import { fetchApi, api } from "@/lib/api"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -12,14 +15,44 @@ import { ScrollAnimation } from "@/components/ScrollAnimation"
 import { BorderBeam } from "@/components/BorderBeam"
 import { Spotlight } from "@/components/Spotlight"
 import { Marquee } from "@/components/Marquee"
+import { usePursuitStore } from "@/store/pursuitStore"
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "@/components/ui/dialog"
+
+// Debounce hook for search
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value)
+        }, delay)
+
+        return () => {
+            clearTimeout(handler)
+        }
+    }, [value, delay])
+
+    return debouncedValue
+}
 
 interface Pursuit {
     id: string
     entity_name: string
     internal_pursuit_owner_name: string
+    pursuit_partner_name?: string
+    pursuit_manager_name?: string
     status: string
     created_at: string
-    progress?: number
+    updated_at?: string
+    submission_due_date?: string
+    progress_percentage?: number
+    industry?: string
 }
 
 interface Activity {
@@ -45,11 +78,88 @@ interface DashboardStats {
     team_members: number
 }
 
+type SortField = "entity_name" | "status" | "internal_pursuit_owner_name" | "created_at" | "submission_due_date"
+type SortDirection = "asc" | "desc"
+
+const STATUS_OPTIONS = [
+    { value: "draft", label: "Draft" },
+    { value: "in_review", label: "In Review" },
+    { value: "ready_for_submission", label: "Ready for Submission" },
+    { value: "submitted", label: "Submitted" },
+    { value: "won", label: "Won" },
+    { value: "lost", label: "Lost" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "stale", label: "Stale" },
+]
+
+const STATUS_COLORS: Record<string, string> = {
+    draft: "bg-slate-500/10 text-slate-400 border-slate-500/20",
+    in_review: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    ready_for_submission: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    submitted: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    won: "bg-green-500/10 text-green-400 border-green-500/20",
+    lost: "bg-red-500/10 text-red-400 border-red-500/20",
+    cancelled: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    stale: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+}
+
 export default function DashboardPage() {
+    const router = useRouter()
+    const { refreshPursuitsCount } = usePursuitStore()
     const [pursuits, setPursuits] = useState<Pursuit[]>([])
     const [activities, setActivities] = useState<Activity[]>([])
     const [stats, setStats] = useState<DashboardStats | null>(null)
     const [isLoading, setIsLoading] = useState(true)
+
+    // Filter states
+    const [searchQuery, setSearchQuery] = useState("")
+    const [statusFilter, setStatusFilter] = useState<string[]>([])
+    const [ownerFilter, setOwnerFilter] = useState<string[]>([])
+    const [partnerFilter, setPartnerFilter] = useState<string[]>([])
+    const [managerFilter, setManagerFilter] = useState<string[]>([])
+    const [entityFilter, setEntityFilter] = useState<string[]>([])
+
+    // Sort states
+    const [sortField, setSortField] = useState<SortField>("created_at")
+    const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+
+    // New Pursuit Modal states
+    const [showNewPursuitModal, setShowNewPursuitModal] = useState(false)
+    const [isCreating, setIsCreating] = useState(false)
+    const [createError, setCreateError] = useState("")
+    const [formData, setFormData] = useState({
+        entity_name: "",
+        internal_pursuit_owner_name: "",
+        internal_pursuit_owner_email: "",
+        pursuit_partner_name: "",
+        pursuit_partner_email: "",
+        pursuit_manager_name: "",
+        pursuit_manager_email: "",
+    })
+
+    // Search states for comboboxes
+    const [entitySearch, setEntitySearch] = useState("")
+    const [ownerSearch, setOwnerSearch] = useState("")
+    const [partnerSearch, setPartnerSearch] = useState("")
+    const [managerSearch, setManagerSearch] = useState("")
+
+    // Debounced search values
+    const debouncedEntitySearch = useDebounce(entitySearch, 300)
+    const debouncedOwnerSearch = useDebounce(ownerSearch, 300)
+    const debouncedPartnerSearch = useDebounce(partnerSearch, 300)
+    const debouncedManagerSearch = useDebounce(managerSearch, 300)
+
+    // Options states
+    const [entityOptions, setEntityOptions] = useState<ComboboxOption[]>([])
+    const [userOptions, setUserOptions] = useState<ComboboxOption[]>([])
+    const [partnerOptions, setPartnerOptions] = useState<ComboboxOption[]>([])
+    const [managerOptions, setManagerOptions] = useState<ComboboxOption[]>([])
+
+    // Loading states for comboboxes
+    const [isLoadingEntities, setIsLoadingEntities] = useState(false)
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+    const [isLoadingPartners, setIsLoadingPartners] = useState(false)
+    const [isLoadingManagers, setIsLoadingManagers] = useState(false)
 
     useEffect(() => {
         async function loadData() {
@@ -71,34 +181,254 @@ export default function DashboardPage() {
         loadData()
     }, [])
 
-    if (isLoading) {
-        return (
-            <div className="flex h-[50vh] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
+    // Fetch entities for new pursuit modal
+    useEffect(() => {
+        if (!showNewPursuitModal) return
+        const fetchEntities = async () => {
+            setIsLoadingEntities(true)
+            try {
+                const response = await fetchApi(`/lookup/entities?q=${encodeURIComponent(debouncedEntitySearch)}&limit=20`)
+                setEntityOptions(response)
+            } catch (error) {
+                console.error("Failed to fetch entities", error)
+            } finally {
+                setIsLoadingEntities(false)
+            }
+        }
+        fetchEntities()
+    }, [debouncedEntitySearch, showNewPursuitModal])
+
+    // Fetch users for internal owner
+    useEffect(() => {
+        if (!showNewPursuitModal) return
+        const fetchUsers = async () => {
+            setIsLoadingUsers(true)
+            try {
+                const response = await fetchApi(`/lookup/users?q=${encodeURIComponent(debouncedOwnerSearch)}&limit=20`)
+                setUserOptions(response)
+            } catch (error) {
+                console.error("Failed to fetch users", error)
+            } finally {
+                setIsLoadingUsers(false)
+            }
+        }
+        fetchUsers()
+    }, [debouncedOwnerSearch, showNewPursuitModal])
+
+    // Fetch team members for partner
+    useEffect(() => {
+        if (!showNewPursuitModal) return
+        const fetchPartners = async () => {
+            setIsLoadingPartners(true)
+            try {
+                const response = await fetchApi(`/lookup/team-members?q=${encodeURIComponent(debouncedPartnerSearch)}&role=partner&limit=20`)
+                setPartnerOptions(response)
+            } catch (error) {
+                console.error("Failed to fetch partners", error)
+            } finally {
+                setIsLoadingPartners(false)
+            }
+        }
+        fetchPartners()
+    }, [debouncedPartnerSearch, showNewPursuitModal])
+
+    // Fetch team members for manager
+    useEffect(() => {
+        if (!showNewPursuitModal) return
+        const fetchManagers = async () => {
+            setIsLoadingManagers(true)
+            try {
+                const response = await fetchApi(`/lookup/team-members?q=${encodeURIComponent(debouncedManagerSearch)}&role=manager&limit=20`)
+                setManagerOptions(response)
+            } catch (error) {
+                console.error("Failed to fetch managers", error)
+            } finally {
+                setIsLoadingManagers(false)
+            }
+        }
+        fetchManagers()
+    }, [debouncedManagerSearch, showNewPursuitModal])
+
+    // Reset form when modal closes
+    const resetForm = () => {
+        setFormData({
+            entity_name: "",
+            internal_pursuit_owner_name: "",
+            internal_pursuit_owner_email: "",
+            pursuit_partner_name: "",
+            pursuit_partner_email: "",
+            pursuit_manager_name: "",
+            pursuit_manager_email: "",
+        })
+        setEntitySearch("")
+        setOwnerSearch("")
+        setPartnerSearch("")
+        setManagerSearch("")
+        setCreateError("")
+    }
+
+    // Handle create pursuit
+    const handleCreatePursuit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setIsCreating(true)
+        setCreateError("")
+
+        try {
+            const payload: Record<string, string> = {
+                entity_name: formData.entity_name,
+                internal_pursuit_owner_name: formData.internal_pursuit_owner_name,
+            }
+
+            if (formData.internal_pursuit_owner_email) {
+                payload.internal_pursuit_owner_email = formData.internal_pursuit_owner_email
+            }
+            if (formData.pursuit_partner_name) {
+                payload.pursuit_partner_name = formData.pursuit_partner_name
+            }
+            if (formData.pursuit_partner_email) {
+                payload.pursuit_partner_email = formData.pursuit_partner_email
+            }
+            if (formData.pursuit_manager_name) {
+                payload.pursuit_manager_name = formData.pursuit_manager_name
+            }
+            if (formData.pursuit_manager_email) {
+                payload.pursuit_manager_email = formData.pursuit_manager_email
+            }
+
+            const response = await fetchApi("/pursuits/", {
+                method: "POST",
+                body: JSON.stringify(payload),
+            })
+
+            if (response.id) {
+                await refreshPursuitsCount()
+                setShowNewPursuitModal(false)
+                resetForm()
+                router.push(`/dashboard/pursuits/${response.id}/workflow/overview`)
+            }
+        } catch (error: any) {
+            console.error("Failed to create pursuit", error)
+            setCreateError(error.message || "Failed to create pursuit")
+        } finally {
+            setIsCreating(false)
+        }
+    }
+
+    // Extract unique values for filter options
+    const filterOptions = useMemo(() => {
+        const entities = new Set<string>()
+        const owners = new Set<string>()
+        const partners = new Set<string>()
+        const managers = new Set<string>()
+
+        pursuits.forEach((p) => {
+            if (p.entity_name) entities.add(p.entity_name)
+            if (p.internal_pursuit_owner_name) owners.add(p.internal_pursuit_owner_name)
+            if (p.pursuit_partner_name) partners.add(p.pursuit_partner_name)
+            if (p.pursuit_manager_name) managers.add(p.pursuit_manager_name)
+        })
+
+        return {
+            entities: Array.from(entities).sort().map((v) => ({ value: v, label: v })),
+            owners: Array.from(owners).sort().map((v) => ({ value: v, label: v })),
+            partners: Array.from(partners).sort().map((v) => ({ value: v, label: v })),
+            managers: Array.from(managers).sort().map((v) => ({ value: v, label: v })),
+        }
+    }, [pursuits])
+
+    // Filter and sort pursuits
+    const filteredPursuits = useMemo(() => {
+        let result = [...pursuits]
+
+        // Apply search filter
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase()
+            result = result.filter((p) =>
+                p.entity_name.toLowerCase().includes(query) ||
+                p.internal_pursuit_owner_name?.toLowerCase().includes(query) ||
+                p.pursuit_partner_name?.toLowerCase().includes(query) ||
+                p.pursuit_manager_name?.toLowerCase().includes(query)
+            )
+        }
+
+        // Apply status filter
+        if (statusFilter.length > 0) {
+            result = result.filter((p) => statusFilter.includes(p.status))
+        }
+
+        // Apply entity filter
+        if (entityFilter.length > 0) {
+            result = result.filter((p) => entityFilter.includes(p.entity_name))
+        }
+
+        // Apply owner filter
+        if (ownerFilter.length > 0) {
+            result = result.filter((p) => ownerFilter.includes(p.internal_pursuit_owner_name))
+        }
+
+        // Apply partner filter
+        if (partnerFilter.length > 0) {
+            result = result.filter((p) => p.pursuit_partner_name && partnerFilter.includes(p.pursuit_partner_name))
+        }
+
+        // Apply manager filter
+        if (managerFilter.length > 0) {
+            result = result.filter((p) => p.pursuit_manager_name && managerFilter.includes(p.pursuit_manager_name))
+        }
+
+        // Apply sorting
+        result.sort((a, b) => {
+            let aVal: any = a[sortField]
+            let bVal: any = b[sortField]
+
+            // Handle null/undefined values
+            if (aVal == null) aVal = ""
+            if (bVal == null) bVal = ""
+
+            // String comparison
+            if (typeof aVal === "string") {
+                aVal = aVal.toLowerCase()
+                bVal = bVal.toLowerCase()
+            }
+
+            if (aVal < bVal) return sortDirection === "asc" ? -1 : 1
+            if (aVal > bVal) return sortDirection === "asc" ? 1 : -1
+            return 0
+        })
+
+        return result
+    }, [pursuits, searchQuery, statusFilter, entityFilter, ownerFilter, partnerFilter, managerFilter, sortField, sortDirection])
+
+    const handleSort = (field: SortField) => {
+        if (sortField === field) {
+            setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+        } else {
+            setSortField(field)
+            setSortDirection("asc")
+        }
+    }
+
+    const SortIcon = ({ field }: { field: SortField }) => {
+        if (sortField !== field) return null
+        return sortDirection === "asc" ? (
+            <ChevronUp className="h-4 w-4 inline ml-1" />
+        ) : (
+            <ChevronDown className="h-4 w-4 inline ml-1" />
         )
     }
 
-    const statsData = [
-        {
-            title: "Active Pursuits",
-            value: (stats?.active_pursuits ?? pursuits.length).toString(),
-            icon: Target,
-            color: "text-blue-400"
-        },
-        {
-            title: "Win Rate",
-            value: `${stats?.win_rate ?? 0}%`,
-            icon: TrendingUp,
-            color: "text-green-400"
-        },
-        {
-            title: "Team Members",
-            value: (stats?.team_members ?? 1).toString(),
-            icon: Users,
-            color: "text-purple-400"
-        },
-    ]
+    const formatStatus = (status: string) => {
+        return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    }
+
+    const formatDate = (dateString?: string) => {
+        if (!dateString) return "-"
+        return new Date(dateString).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+        })
+    }
 
     // Format action text for display
     const formatAction = (action: string, entityType: string) => {
@@ -133,42 +463,83 @@ export default function DashboardPage() {
         return date.toLocaleDateString()
     }
 
+    const clearAllFilters = () => {
+        setSearchQuery("")
+        setStatusFilter([])
+        setEntityFilter([])
+        setOwnerFilter([])
+        setPartnerFilter([])
+        setManagerFilter([])
+    }
+
+    const hasActiveFilters = searchQuery || statusFilter.length > 0 || entityFilter.length > 0 || ownerFilter.length > 0 || partnerFilter.length > 0 || managerFilter.length > 0
+
+    if (isLoading) {
+        return (
+            <div className="flex h-[50vh] items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        )
+    }
+
+    const statsData = [
+        {
+            title: "Active Pursuits",
+            value: (stats?.active_pursuits ?? pursuits.filter(p => !["won", "lost", "cancelled", "stale"].includes(p.status)).length).toString(),
+            icon: Target,
+            color: "text-blue-400"
+        },
+        {
+            title: "Win Rate",
+            value: `${stats?.win_rate ?? 0}%`,
+            icon: TrendingUp,
+            color: "text-green-400"
+        },
+        {
+            title: "Team Members",
+            value: (stats?.team_members ?? 1).toString(),
+            icon: Users,
+            color: "text-purple-400"
+        },
+    ]
+
     return (
         <div className="space-y-8">
             {/* Header Section */}
             <div className="flex justify-between items-end">
                 <div>
                     <div className="flex items-center gap-2">
-                        <h2 className="text-3xl font-bold tracking-tight text-white">Dashboard</h2>
+                        <h1 className="text-3xl font-bold tracking-wide text-white uppercase" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif", letterSpacing: '0.05em' }}>Dashboard</h1>
                         <PageGuide
                             title="Dashboard Overview"
                             description="The Dashboard provides a high-level view of your pursuit pipeline, key performance metrics, and recent activity."
                             guidelines={[
                                 "Monitor active pursuits and their progress status.",
                                 "Track win rates and team engagement metrics.",
-                                "Quickly access recent pursuits or create new ones.",
-                                "Stay updated with the latest team activities and proposal changes."
+                                "Use filters to find specific pursuits quickly.",
+                                "Click on any pursuit to view details and take action."
                             ]}
                         />
                     </div>
                     <p className="text-muted-foreground mt-1">Overview of your pursuit pipeline</p>
                 </div>
-                <Button asChild className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group">
-                    <Link href="/dashboard/pursuits/new">
-                        <span className="relative z-10 flex items-center">
-                            <Plus className="mr-2 h-4 w-4" />
-                            New Pursuit
-                        </span>
-                        <BorderBeam
-                            size={60}
-                            duration={3}
-                            delay={0}
-                            borderWidth={1.5}
-                            colorFrom="#ffffff"
-                            colorTo="#a78bfa"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                        />
-                    </Link>
+                <Button
+                    onClick={() => setShowNewPursuitModal(true)}
+                    className="relative overflow-hidden rounded-full bg-primary hover:bg-primary/90 shadow-[0_0_20px_rgba(124,58,237,0.3)] border-0 group"
+                >
+                    <span className="relative z-10 flex items-center">
+                        <Plus className="mr-2 h-4 w-4" />
+                        New Pursuit
+                    </span>
+                    <BorderBeam
+                        size={60}
+                        duration={3}
+                        delay={0}
+                        borderWidth={1.5}
+                        colorFrom="#ffffff"
+                        colorTo="#a78bfa"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                    />
                 </Button>
             </div>
 
@@ -200,67 +571,200 @@ export default function DashboardPage() {
 
             {/* Main Content Grid */}
             <div className="grid gap-8 lg:grid-cols-3">
-                {/* Pursuits List */}
-                <div className="lg:col-span-2 space-y-6">
+                {/* Pursuits Table */}
+                <div className="lg:col-span-2 space-y-4">
                     <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-white">Recent Pursuits</h3>
-                        <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80">View All</Button>
+                        <h3 className="text-lg font-semibold text-white">My Pursuits</h3>
+                        <span className="text-sm text-muted-foreground">
+                            {filteredPursuits.length} of {pursuits.length} pursuits
+                        </span>
                     </div>
 
-                    <div className="grid gap-4">
-                        {pursuits.map((pursuit, index) => (
-                            <ScrollAnimation key={pursuit.id} delay={0.2 + index * 0.1} animation="fade-in-left">
-                                <Link href={`/dashboard/pursuits/${pursuit.id}`}>
-                                    <Spotlight className="p-4 flex items-center justify-between group cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-primary/5">
-                                        <div className="flex items-center space-x-4">
-                                            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-blue-500/20 flex items-center justify-center text-primary font-bold text-lg">
-                                                {pursuit.entity_name.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <h4 className="font-semibold text-white group-hover:text-primary transition-colors">
-                                                    {pursuit.entity_name}
-                                                </h4>
-                                                <div className="flex items-center text-sm text-muted-foreground mt-1 space-x-3">
-                                                    <span className="flex items-center">
-                                                        <Users className="h-3 w-3 mr-1" />
-                                                        {pursuit.internal_pursuit_owner_name}
-                                                    </span>
-                                                    <span className="flex items-center">
-                                                        <Clock className="h-3 w-3 mr-1" />
-                                                        {new Date(pursuit.created_at).toISOString().split('T')[0]}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
+                    {/* Search and Filters */}
+                    <div className="space-y-3">
+                        {/* Search Bar */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder="Search pursuits..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className={cn(
+                                    "w-full h-10 pl-10 pr-4 rounded-lg text-sm",
+                                    "border border-white/10 bg-white/5 text-white",
+                                    "placeholder:text-muted-foreground",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                )}
+                            />
+                        </div>
 
-                                        <div className="flex items-center space-x-6">
-                                            <div className="text-right hidden sm:block">
-                                                <div className="text-sm font-medium text-white mb-1">Progress</div>
-                                                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                                    <div
-                                                        className="h-full bg-gradient-to-r from-primary to-blue-400"
-                                                        style={{ width: `${pursuit.progress || 0}%` }}
-                                                    />
-                                                </div>
-                                            </div>
+                        {/* Filter Row */}
+                        <div className="flex items-center gap-2 w-full">
+                            <div className="flex-1">
+                                <FilterDropdown
+                                    label="Entity"
+                                    options={filterOptions.entities}
+                                    value={entityFilter}
+                                    onChange={setEntityFilter}
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <FilterDropdown
+                                    label="Status"
+                                    options={STATUS_OPTIONS}
+                                    value={statusFilter}
+                                    onChange={setStatusFilter}
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <FilterDropdown
+                                    label="Owner"
+                                    options={filterOptions.owners}
+                                    value={ownerFilter}
+                                    onChange={setOwnerFilter}
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <FilterDropdown
+                                    label="Partner"
+                                    options={filterOptions.partners}
+                                    value={partnerFilter}
+                                    onChange={setPartnerFilter}
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <FilterDropdown
+                                    label="Manager"
+                                    options={filterOptions.managers}
+                                    value={managerFilter}
+                                    onChange={setManagerFilter}
+                                />
+                            </div>
+                            {hasActiveFilters && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={clearAllFilters}
+                                    className="text-muted-foreground hover:text-white shrink-0"
+                                >
+                                    Clear all
+                                </Button>
+                            )}
+                        </div>
+                    </div>
 
-                                            <div className={cn(
-                                                "px-3 py-1 rounded-full text-xs font-medium border",
-                                                pursuit.status === 'In Progress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                                                    pursuit.status === 'Review' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
-                                                        'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                                            )}>
-                                                {pursuit.status || 'Draft'}
-                                            </div>
-                                        </div>
-                                    </Spotlight>
-                                </Link>
-                            </ScrollAnimation>
-                        ))}
+                    {/* Pursuits Table */}
+                    <div className="rounded-lg border border-white/10 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-white/10 bg-white/5">
+                                        <th
+                                            className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort("entity_name")}
+                                        >
+                                            Entity Name <SortIcon field="entity_name" />
+                                        </th>
+                                        <th
+                                            className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort("status")}
+                                        >
+                                            Status <SortIcon field="status" />
+                                        </th>
+                                        <th
+                                            className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort("internal_pursuit_owner_name")}
+                                        >
+                                            Owner <SortIcon field="internal_pursuit_owner_name" />
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                            Partner
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                            Manager
+                                        </th>
+                                        <th
+                                            className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-white transition-colors"
+                                            onClick={() => handleSort("created_at")}
+                                        >
+                                            Created <SortIcon field="created_at" />
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {filteredPursuits.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                                                {hasActiveFilters ? (
+                                                    <div>
+                                                        <p>No pursuits match your filters</p>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={clearAllFilters}
+                                                            className="mt-2 text-primary"
+                                                        >
+                                                            Clear filters
+                                                        </Button>
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <p>No pursuits yet</p>
+                                                        <Button asChild variant="ghost" size="sm" className="mt-2 text-primary">
+                                                            <Link href="/dashboard/pursuits/new">Create your first pursuit</Link>
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredPursuits.map((pursuit) => (
+                                            <tr
+                                                key={pursuit.id}
+                                                className="hover:bg-white/5 transition-colors cursor-pointer"
+                                                onClick={() => window.location.href = `/dashboard/pursuits/${pursuit.id}`}
+                                            >
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary/20 to-blue-500/20 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
+                                                            {pursuit.entity_name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="font-medium text-white truncate max-w-[200px]">
+                                                            {pursuit.entity_name}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className={cn(
+                                                        "px-2 py-1 rounded-full text-xs font-medium border",
+                                                        STATUS_COLORS[pursuit.status] || STATUS_COLORS.draft
+                                                    )}>
+                                                        {formatStatus(pursuit.status)}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                    {pursuit.internal_pursuit_owner_name || "-"}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                    {pursuit.pursuit_partner_name || "-"}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                    {pursuit.pursuit_manager_name || "-"}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                    {formatDate(pursuit.created_at)}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
-                {/* Analytics / Activity Feed */}
+                {/* Activity Feed */}
                 <ScrollAnimation delay={0.4} animation="fade-in-right" className="space-y-6">
                     <h3 className="text-lg font-semibold text-white">Activity</h3>
                     <Spotlight className="p-6 h-full min-h-[400px]">
@@ -312,6 +816,120 @@ export default function DashboardPage() {
                     </Spotlight>
                 </ScrollAnimation>
             </div>
+
+            {/* New Pursuit Modal */}
+            <Dialog open={showNewPursuitModal} onOpenChange={(open) => {
+                setShowNewPursuitModal(open)
+                if (!open) resetForm()
+            }}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>New Pursuit</DialogTitle>
+                        <DialogDescription>
+                            Enter the basic information for this pursuit. You can upload files after creation.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {createError && (
+                        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center text-red-400">
+                            <div className="h-2 w-2 rounded-full bg-red-500 mr-3" />
+                            {createError}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleCreatePursuit} className="space-y-4">
+                        {/* Entity Name */}
+                        <ComboboxInput
+                            label="Entity Name"
+                            required
+                            placeholder="Search or enter entity name..."
+                            value={formData.entity_name}
+                            onChange={(value) => setFormData({ ...formData, entity_name: value })}
+                            options={entityOptions}
+                            onSearch={setEntitySearch}
+                            isLoading={isLoadingEntities}
+                            allowCustomValue={true}
+                        />
+
+                        {/* Internal Owner */}
+                        <ComboboxInput
+                            label="Internal Owner"
+                            required
+                            placeholder="Search or enter owner name..."
+                            value={formData.internal_pursuit_owner_name}
+                            onChange={(value, email) => setFormData({
+                                ...formData,
+                                internal_pursuit_owner_name: value,
+                                internal_pursuit_owner_email: email || formData.internal_pursuit_owner_email
+                            })}
+                            options={userOptions}
+                            onSearch={setOwnerSearch}
+                            isLoading={isLoadingUsers}
+                            allowCustomValue={true}
+                        />
+
+                        {/* Pursuit Partner (optional) */}
+                        <ComboboxInput
+                            label="Pursuit Partner"
+                            placeholder="Search or enter partner name..."
+                            value={formData.pursuit_partner_name}
+                            onChange={(value, email) => setFormData({
+                                ...formData,
+                                pursuit_partner_name: value,
+                                pursuit_partner_email: email || formData.pursuit_partner_email
+                            })}
+                            options={partnerOptions}
+                            onSearch={setPartnerSearch}
+                            isLoading={isLoadingPartners}
+                            allowCustomValue={true}
+                        />
+
+                        {/* Pursuit Manager (optional) */}
+                        <ComboboxInput
+                            label="Pursuit Manager"
+                            placeholder="Search or enter manager name..."
+                            value={formData.pursuit_manager_name}
+                            onChange={(value, email) => setFormData({
+                                ...formData,
+                                pursuit_manager_name: value,
+                                pursuit_manager_email: email || formData.pursuit_manager_email
+                            })}
+                            options={managerOptions}
+                            onSearch={setManagerSearch}
+                            isLoading={isLoadingManagers}
+                            allowCustomValue={true}
+                        />
+
+                        <div className="pt-4 flex justify-end space-x-3">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => setShowNewPursuitModal(false)}
+                                className="text-muted-foreground hover:text-white hover:bg-white/10"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={isCreating || !formData.entity_name || !formData.internal_pursuit_owner_name}
+                                className="bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+                            >
+                                {isCreating ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Creating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="mr-2 h-4 w-4" />
+                                        Create Pursuit
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

@@ -9,6 +9,8 @@ class PursuitFileBase(BaseModel):
     file_size_bytes: int
     mime_type: str
     extraction_status: Optional[str] = "pending"
+    description: Optional[str] = None
+    uploaded_by_name: Optional[str] = None
 
 class PursuitFileCreate(PursuitFileBase):
     pursuit_id: UUID

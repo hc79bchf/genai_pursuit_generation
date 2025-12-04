@@ -6,13 +6,11 @@ import { useEffect } from "react"
 import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
-    FileText,
     Settings,
     LogOut,
     PieChart,
     MessageSquare,
-    Library,
-    SearchCheck
+    Library
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePursuitStore } from "@/store/pursuitStore"
@@ -24,29 +22,9 @@ const sidebarItems = [
         icon: LayoutDashboard
     },
     {
-        title: "Pursuits",
-        href: "/dashboard/pursuits",
-        icon: FileText
-    },
-    {
         title: "Outline Library",
         href: "/dashboard/pursuits/library",
         icon: Library
-    },
-    {
-        title: "Gap Assessment",
-        href: "/dashboard/gap-assessment",
-        icon: FileText
-    },
-    {
-        title: "Deep Search",
-        href: "/dashboard/deep-search",
-        icon: SearchCheck
-    },
-    {
-        title: "PPT Generation",
-        href: "/dashboard/ppt-generation",
-        icon: FileText
     },
     {
         title: "Analytics",

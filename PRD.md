@@ -1,11 +1,23 @@
 # Product Requirements Document (PRD)
 # Pursuit Response Platform
 
-**Version:** 1.0
-**Date:** 2025-11-04
-**Status:** Requirements Approved
+**Version:** 1.1
+**Date:** 2025-12-02
+**Status:** In Development
 **Product Owner:** TBD
-**Project Phase:** Greenfield MVP
+**Project Phase:** MVP Implementation
+
+---
+
+## Implementation Status
+
+> **Note:** This PRD describes original requirements. The project is now in active development with:
+> - 7-agent pipeline implemented (expanded from original 4-agent design)
+> - Full HITL (Human-in-the-Loop) review system at each stage
+> - Next.js frontend with complete Dashboard, Workflow UI, Gap Assessment, Deep Search, PPT Generation
+> - FastAPI backend with memory system (short-term, long-term, episodic, edit tracking)
+>
+> **See `CLAUDE.md` for current implementation details and status.**
 
 ---
 
@@ -279,7 +291,7 @@ The Pursuit Response Platform addresses these challenges through:
 - **Vector Database:** ChromaDB (Open Source)
 
 **AI Services:**
-- Anthropic Claude 3.5 Sonnet (primary)
+- Anthropic Claude Sonnet 4.5 (primary)
 - Anthropic Claude 3 Haiku (simple tasks)
 - OpenAI embeddings (text-embedding-3-small)
 
@@ -330,7 +342,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Chat interface supports multi-turn conversation for requirements
 - ✅ All required metadata validated before proceeding
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 1: Pursuit Creation)
+**See detailed workflows:** `user-workflows.md` (Workflow 1: Pursuit Creation)
 
 ---
 
@@ -363,11 +375,11 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Manual search supports filters: industry, service type, technology, status, date range, win status
 - ✅ Graceful handling when no similar pursuits found
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 2: Search & Discovery)
+**See detailed workflows:** `user-workflows.md` (Workflow 2: Search & Discovery)
 
 ---
 
-### Module 3: AI Outline Generation with Four-Agent Architecture
+### Module 3: AI Outline Generation with Seven-Agent Architecture
 
 **Purpose:** Generate comprehensive proposal outline using three specialized AI agents that analyze gaps, conduct targeted research, and synthesize content.
 
@@ -494,7 +506,7 @@ The Pursuit Response Platform addresses these challenges through:
 5. User redirected to Outline Editor with comprehensive outline
 
 **Acceptance Criteria:**
-- ✅ Total generation time < 3 minutes (30s + 60s + 90s)
+- ✅ Total generation time ~15 minutes (7-agent pipeline with HITL, target < 7 min)
 - ✅ **Gap Analysis Agent identifies all uncovered requirements**
 - ✅ **Metadata used throughout gap analysis** (industry, services, technologies)
 - ✅ **Research queries tailored with metadata context** (not generic)
@@ -517,7 +529,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Each agent's output logged for debugging
 - ✅ Graceful handling of agent failures (fallback to next agent)
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 3-7: AI Outline Generation)
+**See detailed workflows:** `user-workflows.md` (Workflow 3-7: AI Outline Generation)
 
 ---
 
@@ -571,7 +583,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Conversation history visible and scrollable
 - ✅ Clear visual indicator when content is being generated
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 8-11: Outline Editor & Refinement)
+**See detailed workflows:** `user-workflows.md` (Workflow 8-11: Outline Editor & Refinement)
 
 ---
 
@@ -614,7 +626,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Export option allows external editing with sync back (future)
 - ✅ Progress indicator shows current phase
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 12-13: Document Generation)
+**See detailed workflows:** `user-workflows.md` (Workflow 12-13: Document Generation)
 
 ---
 
@@ -652,7 +664,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Only Internal Pursuit Owner can mark as "submitted"
 - ✅ All reviews logged in database
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 14-15: Review & Approval)
+**See detailed workflows:** `user-workflows.md` (Workflow 14-15: Review & Approval)
 
 ---
 
@@ -688,7 +700,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ Bulk upload interface for seeding historical pursuits
 - ✅ Auto-extraction of metadata from seeded files
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 16-18: Repository Management)
+**See detailed workflows:** `user-workflows.md` (Workflow 16-18: Repository Management)
 
 ---
 
@@ -726,7 +738,7 @@ The Pursuit Response Platform addresses these challenges through:
 - ✅ All metrics update in real-time when filters applied
 - ✅ Individual and team views available
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Workflow 19: Analytics & Reporting)
+**See detailed workflows:** `user-workflows.md` (Workflow 19: Analytics & Reporting)
 
 ---
 
@@ -814,7 +826,7 @@ The Pursuit Response Platform addresses these challenges through:
 - Calculate progress percentage based on completed stages
 - Implement optimistic locking to prevent concurrent edit conflicts
 
-**See detailed workflows:** `docs/requirements/user-workflows.md` (Save & Resume functionality throughout)
+**See detailed workflows:** `user-workflows.md` (Save & Resume functionality throughout)
 
 ---
 
@@ -878,7 +890,7 @@ users (1) → (N) quality_tags [tagged_by_user_id]
 pursuits (1) → (N) citations [source_pursuit_id]
 ```
 
-**See comprehensive details:** `docs/requirements/data-models.md`
+**See comprehensive details:** `database-schema.md`
 
 ---
 
@@ -998,7 +1010,7 @@ pursuits (1) → (N) citations [source_pursuit_id]
 - ✅ Post-MVP: SOC2 Type II certification
 
 **Security Assessment**
-- 📄 **See:** `docs/architecture/security-assessment.md` for complete security analysis
+- 📄 **See:** `technical-architecture.md` Section 8 for security architecture
 - 🔴 **2 Critical Gaps** identified: CSRF protection, SSRF protection
 - 🟡 **6 High Priority** items before production scale
 - ✅ **Overall Assessment**: GOOD for MVP with trusted user base
@@ -1009,8 +1021,8 @@ pursuits (1) → (N) citations [source_pursuit_id]
 - ✅ Page load time: < 2 seconds (first contentful paint)
 - ✅ API response time: < 500ms (95th percentile)
 - ✅ Search results: < 30 seconds
-- ✅ AI outline generation: < 3 minutes
-- ✅ Document generation: < 4 minutes
+- ✅ AI outline generation: ~15 min actual (target < 7 min)
+- ✅ Document generation: ~6-7 min actual (target < 4 min)
 - ✅ UI interactions: < 200ms feedback
 
 **Throughput**
@@ -1203,7 +1215,7 @@ pursuits (1) → (N) citations [source_pursuit_id]
 - ✅ 99% uptime
 - ✅ < 2 second page load time (95th percentile)
 - ✅ < 30 second search time (95th percentile)
-- ✅ < 2 minute outline generation (95th percentile)
+- ✅ < 7 minute outline generation target (actual ~15 min, needs optimization)
 
 **AI Costs**
 - ✅ Average AI API cost per pursuit: < $5
@@ -1294,14 +1306,12 @@ pursuits (1) → (N) citations [source_pursuit_id]
 ### Appendix B: References
 
 **Related Documents:**
-- `docs/requirements/system-requirements.md` - Detailed system requirements
-- `docs/architecture/system-architecture.md` - Technical architecture and deployment
-- `docs/architecture/api-specification.md` - Complete REST API specification
-- `docs/architecture/security-assessment.md` - Security analysis and critical gaps
-- `docs/architecture/data-model.md` - Database schema implementation details
-- `docs/requirements/data-models.md` - Data model reference and entity definitions
-- `docs/requirements/user-workflows.md` - Detailed user workflows and UI mockups
-- `docs/requirements/modules/*` - Individual module specifications (future)
+- `system-requirements.md` - Detailed system requirements
+- `technical-architecture.md` - Technical architecture and deployment
+- `api-specification.md` - Complete REST API specification
+- `database-schema.md` - Database schema implementation details
+- `user-workflows.md` - Detailed user workflows and UI mockups
+- `CLAUDE.md` - Claude Code project instructions and current status
 
 **External References:**
 - Anthropic Claude API Documentation

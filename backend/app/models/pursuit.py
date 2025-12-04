@@ -14,13 +14,23 @@ class Pursuit(Base):
 
     # Client Information
     entity_name = Column(String(255), nullable=False)
+    entity_number = Column(String(100), nullable=True)  # Related identifier/code for the entity
     client_pursuit_owner_name = Column(String(255))
     client_pursuit_owner_email = Column(String(255))
+    entity_sponsor_name = Column(String(255), nullable=True)
+    entity_sponsor_email = Column(String(255), nullable=True)
+    entity_contacts = Column(Text, nullable=True)  # Multiple contacts as text/JSON
 
     # Internal Information
     internal_pursuit_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     internal_pursuit_owner_name = Column(String(255), nullable=False)
     internal_pursuit_owner_email = Column(String(255), nullable=False)
+
+    # Pursuit Team (optional)
+    pursuit_partner_name = Column(String(255), nullable=True)
+    pursuit_partner_email = Column(String(255), nullable=True)
+    pursuit_manager_name = Column(String(255), nullable=True)
+    pursuit_manager_email = Column(String(255), nullable=True)
 
     # Classification
     industry = Column(String(100), nullable=True, index=True)
